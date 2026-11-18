@@ -4,7 +4,13 @@ function nibe_env(string $name, ?string $default = null): ?string
 {
     $value = getenv($name);
 
-    return $value === false ? $default : $value;
+    if ($value !== false) {
+        return $value;
+    }
+
+    $serverValue = $_SERVER[$name] ?? null;
+
+    return is_string($serverValue) ? $serverValue : $default;
 }
 
 function nibe_database_config(): array
