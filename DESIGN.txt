@@ -1,0 +1,229 @@
+Nibe-warmtepompdashboard: voorgesteld ontwerp
+==============================================
+
+1. Doel en afbakening
+---------------------
+Bouw een interactief dashboard voor een S2125-12-buitenunit en een
+MHB 05-binnenunit (volgens de beschrijving met een niet-S-seriecontroller
+die vergelijkbaar is met de SMO 40). Het dashboard combineert beschikbare
+sensormetingen over tijd op manieren die myUplink niet biedt, met gebruik
+van de bestaande hosting met PHP 8 en MySQL. Dit document beschrijft een
+ontwerp, geen implementatie. De eerste versie is alleen-lezen: instellingen
+van de warmtepomp mogen niet worden gewijzigd. Het dashboard vervangt geen
+veiligheidsvoorzieningen en belooft geen realtimebewaking.
+
+Het doel is bereikt wanneer de eigenaar een periode kan selecteren, relevante
+sensoren in één grafiek kan combineren, ontbrekende of verouderde gegevens kan
+herkennen en vanaf het begin van de gegevensverzameling een eigen historie
+kan bijhouden. Het dashboard is alleen-lezen en bevat geen privacygevoelige
+gegevens; er is daarom geen gebruikerslogin nodig. Welke meetwaarden
+beschikbaar zijn, hangt af van de daadwerkelijke controller, firmware,
+cloudverbinding, het abonnement en de API-toegang.
+
+2. Controleer eerst de gegevensbron
+-----------------------------------
+Leid cloudcompatibiliteit of beschikbare meetwaarden niet alleen af uit het
+model S2125. Controleer het exacte controllermodel en de firmware van de
+MHB 05, hoe deze is verbonden, in welke account of dienst de installatie
+daadwerkelijk verschijnt en of die account de openbare myUplink-API kan
+autoriseren. De beschrijving van de eigenaar is een uitgangspunt, geen
+bevestigde gelijkstelling met de SMO 40. NIBE omschrijft de MHB 05 als een
+hydrobox voor lucht/waterwarmtepompen. De productpagina noemt ook externe
+Modbus, maar dat bewijst niet dat deze installatie Modbus TCP of de
+myUplink-API beschikbaar stelt.
+
+Voer vóór de bouw een beperkte, alleen-lezen verkenning uit:
+  * Registreer een ontwikkelaarsapplicatie en controleer de actuele
+    API-overeenkomst, vereiste machtigingen, quota en abonnementseisen.
+    Controleer of de hostingprovider HTTPS, uitgaand API-verkeer en een
+    niet-openbare plek voor geheimen biedt.
+  * Koppel de daadwerkelijke installatie via de op dat moment gedocumenteerde
+    OAuth-stroom voor een eindgebruikersaccount; vraag uitsluitend leesrechten
+    aan. Controleer de callback- en tokenvernieuwing en neem geen OAuth-stroom,
+    scope of geldigheidsduur van tokens als vanzelfsprekend aan.
+  * Inventariseer de toegankelijke systemen en apparaten en bekijk hun
+    meetpunt-ID's, namen, eenheden, waardetypen, tijdstempels en
+    bijwerkfrequentie. Vergelijk deze met de weergave op de controller. Sla
+    lokaal een inventaris op zonder tokens, serienummers of andere privé-
+    identificatoren bloot te leggen.
+  * Controleer in de actuele API-documentatie en voor het account de
+    snelheidslimieten, historie-eindpunten, datumbereiken en aggregaties.
+    De API beschrijft historie-eindpunten, maar het bestaan daarvan garandeert
+    geen historische toegang voor dit apparaat of account. Ga niet uit van
+    het kunnen ophalen van oudere gegevens of van een vaste
+    cloudverversingsfrequentie.
+
+Als de installatie niet via myUplink beschikbaar is, stop dan voordat de
+gegevensverzamelaar wordt gebouwd en onderzoek welke ondersteunde dienst of
+lokale interface daadwerkelijk beschikbaar is. Home Assistant is een
+optionele alternatieve gegevensbron, uitsluitend als de eigenaar deze al
+gebruikt of ervoor kiest deze in te stellen; dit ontwerp vereist Home
+Assistant niet. Een in de cloud gehoste website heeft niet vanzelf toegang
+tot een privénetwerk. Voor een lokale brug is een afzonderlijk, geauthenticeerd
+ontwerp nodig dat uitsluitend uitgaande verbindingen gebruikt. Vermijd
+ongedocumenteerd scrapen of het rechtstreeks blootstellen van een controller
+aan het internet.
+
+3. Architectuur
+---------------
+  Warmtepomp / P1-meter -> bronadapter -> los aanroepbare PHP-gegevensverzamelaar
+      -> MySQL -> alleen-lezen PHP JSON-API -> dashboard in de browser
+
+De browser communiceert alleen met de PHP-applicatie van dezelfde website,
+nooit rechtstreeks met de cloud-API of database. Omdat de hosting geen
+geplande taken ondersteunt, wordt de gegevensverzamelaar een zelfstandig
+aanroepbaar PHP-eindpunt dat UptimeRobot periodiek opvraagt. Het eindpunt
+verzamelt de gegevens tijdens de aanvraag en geeft een eenvoudige succes- of
+foutstatus terug. Beveilig deze aanroep met een afzonderlijk geheim token;
+dit is geen gebruikerslogin. Houd bronaanmeldgegevens buiten de webroot en
+toon ze nooit in de respons. Het laden van dashboardpagina's start geen
+verzameling.
+
+Houd adapters voor gegevensbronnen aan, zodat bronnen onafhankelijk kunnen
+worden toegevoegd. De eerste bron is myUplink; een P1-meter kan bijvoorbeeld
+later energieverbruiksgegevens leveren. Gebruik PHP 8 met PDO en prepared
+statements, MySQL/InnoDB en een responsieve browserinterface. Gebruik zo
+nodig een onderhouden grafiekbibliotheek. Controleer of de hostingprovider
+de benodigde PHP-extensies ondersteunt.
+
+Levenscyclus van de gegevensverzamelaar:
+  1. Controleer het token van de aanroep, voorkom overlappende runs en leg
+     begin- en eindstatus vast.
+  2. Vernieuw indien nodig bronaanmeldgegevens. Haal de beschikbare
+     meetpunten op en geef bronwaarden, eenheden en tijdstempels ongewijzigd
+     door en sla ze op. Gebruik waarden niet als een andere betekenis of
+     eenheid is verondersteld.
+  3. Maak onderscheid tussen een ontbrekende bronwaarde en een numerieke nul.
+     Ontbrekende gegevens blijven ontbrekend; vul ze nooit aan met verzonnen,
+     standaard- of eerder waargenomen waarden.
+  4. Geef een foutstatus terug bij mislukte bronaanroepen en registreer de
+     laatste geslaagde verzameling. Respecteer bij HTTP 429 Retry-After als
+     die aanwezig is en voorkom onbegrensde herhaalpogingen.
+
+Stel het pollinterval in UptimeRobot af op het werkelijke quotum en de
+verversingsfrequentie van de bron. Houd rekening met andere clients, zoals
+Home Assistant, die hetzelfde quotum kunnen gebruiken. Vaker pollen dan de
+bron wordt bijgewerkt, levert geen nieuwe metingen op. Als de bron geen
+tijdstempels aanlevert, geef de verzameltijd dan apart door; presenteer die
+niet als brontijd. Een mislukte opvraging moet zichtbaar een gat opleveren;
+kopieer de vorige waarde niet stilzwijgend alsof het een nieuwe meting is.
+
+4. Gegevensmodel en bewaartermijn
+---------------------------------
+Gebruik UTC voor opslag en converteer bij weergave naar de door de eigenaar
+gekozen tijdzone. Het minimale logische schema (de daadwerkelijke typen en
+indexen worden vastgesteld op basis van de MySQL-versie van de hosting):
+  * verbinding: bron, autorisatiestatus, laatste succes/fout en tijdstempels;
+    versleutelde aanmeldgegevens worden buiten openbaar toegankelijke
+    webbestanden opgeslagen.
+  * apparaat: verbindings-ID, apparaat-ID van de bron en weergavenaam;
+    uniek op (verbindings-ID, apparaat-ID van de bron).
+  * meetpunt: apparaat-ID, meetpunt-ID van de bron, naam, eenheid, waardetype
+    en ingeschakeld-vlag; uniek op (apparaat-ID, meetpunt-ID van de bron).
+    Bewaar de oorspronkelijke metadata en vereis een expliciete koppeling van
+    ontdekte meetpunten aan dashboardfuncties.
+  * waarneming: bron-/meetpunt-ID, optionele brontijd, verzameltijd en de
+    ruwe waarde zoals aangeleverd door de bron. Indexeer op
+    (meetpunt-ID, verzameltijd) en (meetpunt-ID, brontijd). Als de bron een
+    stabiele tijdstempel voor een daadwerkelijke meting levert, voorkom dan
+    duplicaten op (meetpunt-ID, brontijd); zo niet, sla afzonderlijke
+    waarnemingen op aan de hand van de verzameltijd. Herhaalde opvragingen
+    mogen niet doorgaan voor nieuwe metingen van de bron.
+  * verzamelrun: begin/einde, resultaat en opgeschoonde foutmelding voor
+    diagnostiek.
+
+Geef de ruwe waarden en metadata van de bron ongewijzigd door en sla ze met
+voldoende precisie op. Pas geen zelfgekozen schaalfactoren, eenheden of
+interpretaties toe. Stel de gewenste bewaartermijn vast en volg de
+bewaar- en verwijdervoorwaarden van de aanbieder. De huidige myUplink-
+API-overeenkomst beperkt het bewaren van verzamelde gegevens na beëindiging,
+met een genoemde uitzondering; controleer de toepasselijke voorwaarden.
+Er wordt geen back-upvoorziening gebouwd: als historische gegevens niet
+opnieuw bij de bron kunnen worden opgehaald en verloren gaan, is dat
+aanvaardbaar.
+
+5. Dashboard en interpretatie
+-----------------------------
+Toon een mobielvriendelijk overzicht met de laatste waarden, eenheden,
+bron-/verzameltijd, verbindingsstatus en een duidelijke aanduiding voor
+verouderde gegevens. Laat de eigenaar instellen welke beschikbare meetpunten
+welke rol hebben, zonder meetpunt-ID's hard te coderen. Toon niet-beschikbare
+functies als niet beschikbaar, niet als nul. Mogelijke weergaven:
+  * Temperaturen: buiten-, aanvoer-, retour-, binnen- en tapwatertemperatuur,
+    indien beschikbaar; combineer aanvoer/retour en buitentemperatuur in één
+    grafiek met afzonderlijk gelabelde assen.
+  * Bedrijf: compressorstatus/-frequentie, verwarmings-/tapwatermodus,
+    starts, ontdooien en bijverwarming, uitsluitend wanneer de bijbehorende
+    gegevens beschikbaar zijn.
+  * Energie: elektrisch verbruik en geproduceerde warmte, uitsluitend indien
+    ondersteund en de betekenis van de metingen en eenheden bekend zijn.
+  * Een aanpasbare grafiek met meerdere sensoren, datumbereik, reeksselectie,
+    eenheidsbewuste assen, legenda en waarden/tijdstempels bij aanwijzen.
+    Bied vooraf ingestelde perioden zoals 24 uur, 7 dagen en 30 dagen, plus
+    een begrensd aangepast datumbereik.
+
+Lijn meetreeksen uit op één tijdas zonder metingen te verzinnen. Toon gaten
+voor ontbrekende of verouderde gegevens, markeer storingen en interpoleer
+nooit bedrijfsstatussen of tellers. Als herberekening naar een andere
+tijdsresolutie nodig is, toon dan de aggregatiemethode en dekking. Combineer
+geen onverenigbare eenheden op een niet-gelabelde as. Aanvoer minus retour
+is alleen geldig bij compatibele temperatuureenheden en metingen die
+voldoende dicht bij elkaar liggen; toon anders geen resultaat. Statuswaarden
+moeten hun afzonderlijke labels gebruiken en niet worden gemiddeld als
+numerieke codes.
+
+COP is optioneel en mag niet standaard worden berekend uit niet-gerelateerde
+temperaturen. Houd ruimte voor door de eigenaar gedefinieerde afgeleide
+metingen, zoals een eigen COP-definitie, zonder de oorspronkelijke
+bronwaarden te wijzigen. Documenteer per afgeleide meting de formule,
+invoerbronnen, eenheden en eventuele aannames. Toon alleen een afgeleide
+waarde wanneer de benodigde invoer beschikbaar is; verzin of schat geen
+ontbrekende invoer.
+
+6. Applicatie-interface en beveiliging
+--------------------------------------
+Er is geen gebruikerslogin nodig: het dashboard en de gegevens zijn
+alleen-lezen en niet privacygevoelig. Beveilig het afzonderlijke
+verzamelendpoint wel met een token dat alleen voor de externe UptimeRobot-
+aanroep wordt gebruikt. Gebruik HTTPS. Bewaar OAuth-clientgeheimen,
+brontokens en databasegegevens buiten de webroot en logbestanden; stel ze
+niet beschikbaar in de dashboard-API of foutmeldingen.
+
+De backend biedt openbare, alleen-lezen eindpunten voor apparaten,
+meetpunten, ruwe metingen en de status van de gegevensverzameling. Gebruik
+prepared SQL, escape weergegeven tekst en begrens de omvang van
+historieopvragingen. Bied geen generiek SQL-eindpunt of schrijfbewerkingen
+naar de warmtepomp aan. Houd bronauthenticatie en het verzamelendpoint
+gescheiden van openbare dashboardgegevens.
+
+7. Oplevering en acceptatie
+---------------------------
+  1. Rond de verkenning van bron en hosting af en documenteer de gevonden
+     meetpunten en machtigingen. Kies eerst een ondersteunde bron als toegang
+     niet mogelijk is.
+  2. Implementeer accountkoppeling, ontdekking van apparaten/meetpunten en
+     een los aanroepbare, alleen-lezen gegevensverzamelaar. Laat UptimeRobot
+     deze periodiek opvragen en controleer de basiswerking en foutstatus.
+  3. Voeg opslag en een passende bewaartermijn toe. Behoud bronwaarden zoals
+     ze zijn aangeleverd; bouw geen back-up/herstelvoorziening.
+  4. Bouw het overzicht en grafieken met meerdere meetreeksen. Controleer de
+     basisweergave en dat meetwaarden niet worden vervangen door zelf
+     verzonnen fallbackdata.
+  5. Voeg configureerbare afgeleide metingen en nieuwe gegevensbronnen toe
+     wanneer daarvoor behoefte is, bijvoorbeeld een P1-meter voor verbruik.
+     Documenteer installatie en het aanroepen van de gegevensverzamelaar.
+
+Openstaande keuzes voor de eigenaar: exacte controller/firmware en
+clouddienst; beschikbare sensoren en abonnement; HTTPS en veilige opslag van
+geheimen bij de hostingprovider; gewenst pollinterval, bewaartermijn,
+tijdzone en belangrijkste vergelijkingen; of Home Assistant al wordt
+gebruikt; en of het ophalen van historische gegevens is toegestaan en zinvol.
+
+Bronnen (controleer tijdens de verkenning de actuele documentatie en voorwaarden)
+-------------------------------------------------------------------------------
+NIBE MHB 05: https://www.nibe.eu/en-eu/products/heat-pumps/air-water-heat-pumps/mhb-05
+Productinformatie NIBE S2125: https://assetstore.nibe.se/hcms/v2.3/entity/document/121056/storage/MTIxMDU2LzAvbWFzdGVy/download/CIL%20EN%20S2125%20M12867-2
+myUplink-portaal voor ontwikkelaars: https://dev.myuplink.com/
+myUplink API-referentie: https://api.myuplink.com/swagger/index.html
+myUplink API-overeenkomst: https://dev.myuplink.com/api-services-agreement
+Home Assistant myUplink-integratie: https://www.home-assistant.io/integrations/myuplink/
