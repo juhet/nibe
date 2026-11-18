@@ -13,6 +13,35 @@ function nibe_env(string $name, ?string $default = null): ?string
     return is_string($serverValue) ? $serverValue : $default;
 }
 
+function nibe_collector_authorized(
+    ?string $expectedToken,
+    string $authorization,
+    string $basicUser = '',
+    string $basicPassword = ''
+): bool {
+    if ($expectedToken === null || $expectedToken === '') {
+        return false;
+    }
+
+    if (str_starts_with($authorization, 'Bearer ')) {
+        $providedToken = substr($authorization, 7);
+    } elseif (strncasecmp($authorization, 'Basic ', 6) === 0) {
+        $credentials = base64_decode(substr($authorization, 6), true);
+        if ($credentials === false || !str_contains($credentials, ':')) {
+            return false;
+        }
+
+        [$basicUser, $basicPassword] = explode(':', $credentials, 2);
+        $providedToken = $basicUser === 'collector' ? $basicPassword : '';
+    } elseif ($authorization === '' && $basicUser === 'collector') {
+        $providedToken = $basicPassword;
+    } else {
+        return false;
+    }
+
+    return $providedToken !== '' && hash_equals($expectedToken, $providedToken);
+}
+
 function nibe_database_config(): array
 {
     $config = [
