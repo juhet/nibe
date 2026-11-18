@@ -60,7 +60,9 @@ hardgecodeerd.
 De collector is een apart, alleen-lezen endpoint. Roep
 `https://<website>/collect.php` periodiek aan met een
 `Authorization`-header met het collector-token als Bearer-token. Voeg het token
-niet toe aan de URL. Een geslaagde aanroep geeft een JSON-status met het aantal
+niet toe aan de URL. Zowel GET als HEAD start een verzameling; bij HEAD is
+alleen de HTTP-status beschikbaar, zonder responsebody. Een geslaagde GET geeft
+een JSON-status met het aantal
 gevonden apparaten, meetpunten en opgeslagen waarnemingen. Een mislukte
 aanroep geeft een foutstatus; technische details en tokens worden niet in de
 HTTP-respons getoond. Gelijktijdige runs worden geweigerd. Bij HTTP 429 volgt
@@ -93,5 +95,5 @@ ontbrekende of onbereikbare databaseconfiguratie wordt een algemene melding
 getoond; technische foutdetails of inloggegevens worden niet in de pagina
 weergegeven. Waarden worden als aangeleverd getoond en alle tijden zijn UTC.
 
-Voer de gerichte tests uit met `php tests/collector_test.php` en
-`php tests/dashboard_test.php`.
+Voer de gerichte tests uit met `php tests/collector_test.php`,
+`php tests/collector_http_test.php` en `php tests/dashboard_test.php`.

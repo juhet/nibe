@@ -12,8 +12,8 @@ function nibe_collection_response(int $status, array $response): never
     exit;
 }
 
-if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
-    header('Allow: GET');
+if (!in_array($_SERVER['REQUEST_METHOD'] ?? '', ['GET', 'HEAD'], true)) {
+    header('Allow: GET, HEAD');
     nibe_collection_response(405, ['success' => false, 'error' => 'Method not allowed.']);
 }
 
