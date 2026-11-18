@@ -118,7 +118,9 @@ frequency and retention before enabling all points. Add optional aggregates
 later only with explicit counts, coverage and min/max; do not discard raw
 data before confirming the retention policy. Regularly back up the database
 and encrypted credentials, test restores, and honor the provider's data
-retention and deletion terms.
+retention and deletion terms. The current myUplink API agreement restricts
+keeping collected data after termination, subject to a stated exception;
+review the applicable terms before assuming indefinite retention or export.
 
 5. Dashboard and interpretation
 -------------------------------
