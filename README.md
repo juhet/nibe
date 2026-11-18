@@ -69,10 +69,15 @@ later opnieuw kan proberen.
 Voor een handmatige aanroep in een browser verschijnt bij de eerste aanvraag
 een aanmeldvenster. Gebruik `collector` als gebruikersnaam en het
 `NIBE_COLLECTOR_TOKEN` als wachtwoord. Gebruik deze methode alleen via HTTPS;
-deel het token niet in een URL. Stel de pollfrequentie af op de API-quota en
-verversingsfrequentie. Controleer ook dat de hostingprovider de
-collector-tokenheader naar PHP doorgeeft. Het endpoint schrijft uitsluitend
-gegevens naar de eigen database en wijzigt geen warmtepompinstellingen.
+deel het token niet in een URL. Apache kan de `Authorization`-header vóór PHP
+weghalen. Voeg in dat geval aan de bestaande root-`.htaccess` de regel
+`CGIPassAuth On` toe, of gebruik als de provider dit niet ondersteunt
+`SetEnvIfNoCase Authorization "^(.+)$" HTTP_AUTHORIZATION=$1`. Behoud eventuele
+andere instellingen in dat bestand en configureer geen aparte Apache
+Basic-authenticatie voor `collect.php`; de applicatie controleert zelf de
+aanmeldgegevens tegen `NIBE_COLLECTOR_TOKEN`. Stel de pollfrequentie af op de
+API-quota en verversingsfrequentie. Het endpoint schrijft uitsluitend gegevens
+naar de eigen database en wijzigt geen warmtepompinstellingen.
 
 ## Controleren
 
