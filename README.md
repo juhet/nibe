@@ -66,10 +66,13 @@ maximaal één korte retry als `Retry-After` binnen vijf seconden valt; anders
 wordt de run als mislukt geregistreerd zodat de volgende geplande aanroep
 later opnieuw kan proberen.
 
-Stel de pollfrequentie af op de API-quota en verversingsfrequentie. Controleer
-ook dat de hostingprovider de Collector-tokenheader naar PHP doorgeeft. Het
-endpoint schrijft uitsluitend gegevens naar de eigen database en wijzigt geen
-warmtepompinstellingen.
+Voor een handmatige aanroep in een browser verschijnt bij de eerste aanvraag
+een aanmeldvenster. Gebruik `collector` als gebruikersnaam en het
+`NIBE_COLLECTOR_TOKEN` als wachtwoord. Gebruik deze methode alleen via HTTPS;
+deel het token niet in een URL. Stel de pollfrequentie af op de API-quota en
+verversingsfrequentie. Controleer ook dat de hostingprovider de
+collector-tokenheader naar PHP doorgeeft. Het endpoint schrijft uitsluitend
+gegevens naar de eigen database en wijzigt geen warmtepompinstellingen.
 
 ## Controleren
 

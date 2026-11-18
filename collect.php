@@ -19,9 +19,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
 
 $expectedToken = nibe_env('NIBE_COLLECTOR_TOKEN');
 $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-$providedToken = str_starts_with($authorization, 'Bearer ') ? substr($authorization, 7) : '';
+$basicUser = $_SERVER['PHP_AUTH_USER'] ?? '';
+$basicPassword = $_SERVER['PHP_AUTH_PW'] ?? '';
 
-if ($expectedToken === null || $expectedToken === '' || $providedToken === '' || !hash_equals($expectedToken, $providedToken)) {
+if (!nibe_collector_authorized($expectedToken, $authorization, $basicUser, $basicPassword)) {
+    if ($expectedToken !== null
+        && $expectedToken !== ''
+        && $authorization === ''
+        && $basicUser === ''
+        && $basicPassword === '') {
+        header('WWW-Authenticate: Basic realm="NIBE collector", charset="UTF-8"');
+        nibe_collection_response(401, ['success' => false, 'error' => 'Collector authorization required.']);
+    }
+
     nibe_collection_response(403, ['success' => false, 'error' => 'Collector authorization failed.']);
 }
 
