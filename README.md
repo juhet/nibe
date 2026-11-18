@@ -1,7 +1,9 @@
 # NIBE-dashboard
 
-Een eerste, alleen-lezen basis voor het dashboard uit [DESIGN.txt](DESIGN.txt).
-De pagina toont ontdekte meetpunten en de laatst opgeslagen waarden uit MySQL.
+Een eerste, alleen-lezen dashboard uit [DESIGN.txt](DESIGN.txt). De pagina
+toont ontdekte meetpunten als kaarten met de laatst opgeslagen waarden,
+verbindingsstatus en een trend van numerieke waarnemingen uit de afgelopen
+24 uur.
 De afzonderlijke gegevensverzamelaar ontdekt systemen en meetpunten via
 myUplink en slaat hun actuele waarden op. De pagina start zelf geen verzameling
 en vult ontbrekende metingen niet aan met verzonnen waarden.
@@ -84,9 +86,12 @@ naar de eigen database en wijzigt geen warmtepompinstellingen.
 Na het importeren van het schema en het instellen van de databasevariabelen
 opent de startpagina. Zonder opgeslagen meetpunten toont de pagina dat er nog
 geen gegevens zijn. Na een geslaagde collector-aanroep toont zij de ontdekte
-meetpunten en laatste waarden. Bij ontbrekende of onbereikbare
-databaseconfiguratie wordt een algemene melding getoond; technische foutdetails
-of inloggegevens worden niet in de pagina weergegeven. Waarden worden als
-aangeleverd getoond en alle tijden zijn UTC.
+meetpunten en laatste waarden. Meetpunten waarvan de bron- of verzameltijd
+meer dan 24 uur oud is, worden als verouderd aangeduid; niet-numerieke waarden
+blijven zichtbaar, maar worden niet in de trendgrafieken opgenomen. Bij
+ontbrekende of onbereikbare databaseconfiguratie wordt een algemene melding
+getoond; technische foutdetails of inloggegevens worden niet in de pagina
+weergegeven. Waarden worden als aangeleverd getoond en alle tijden zijn UTC.
 
-Voer de gerichte tests uit met `php tests/collector_test.php`.
+Voer de gerichte tests uit met `php tests/collector_test.php` en
+`php tests/dashboard_test.php`.
