@@ -1,3 +1,3 @@
 # nibe
 
-See [DESIGN.txt](DESIGN.txt) for the proposed heat pump dashboard.
+Zie [DESIGN.txt](DESIGN.txt) voor het voorgestelde ontwerp van het warmtepompdashboard.
