@@ -1,0 +1,203 @@
+Nibe heat pump dashboard: proposed design
+=========================================
+
+1. Goal and scope
+-----------------
+Build a private, interactive dashboard for an S2125-12 outdoor unit and
+MHB 05 indoor unit (reported to use a non-S-series, SMO 40-like controller).
+It should combine available sensor readings over time in ways myUplink does
+not, using existing PHP 8 and MySQL hosting. This is a design, not an
+implementation. The first release is read-only: it must not change heat
+pump settings, replace safety controls, or promise real-time monitoring.
+
+Success means the owner can select a time range, overlay relevant sensors,
+see when data is missing or stale, and retain their own history from the
+time collection begins. Whether each metric exists depends on the actual
+controller, firmware, cloud connection, subscription, and API access.
+
+2. Verify the data source first
+-------------------------------
+Do not infer cloud compatibility or available parameters from the S2125
+model alone. Confirm the MHB 05's exact controller and firmware, how it is
+connected, which account/service it actually appears in, and whether that
+account can authorize the public myUplink API. The owner's description is
+the starting assumption, not a verified equivalence with SMO 40. NIBE lists
+the MHB 05 as an air/water hydrobox; its product page also mentions external
+Modbus, but that does not establish that this installation exposes Modbus
+TCP or the myUplink API.
+
+Run a small, read-only discovery spike before implementing the dashboard:
+  * Register a developer application, review the current API agreement,
+    required permissions, quotas, subscription and hosting requirements.
+    Confirm HTTPS, outbound access to the API, a scheduled job, and a
+    non-public location for secrets are available on the host.
+  * Link the actual installation using the currently documented OAuth flow
+    for an end-user account; request only read access. Verify callback and
+    token refresh behavior, rather than assuming a particular flow, scope,
+    or token lifetime.
+  * List accessible systems and devices and inspect their point IDs, names,
+    units, value types, timestamps and update cadence. Compare them with
+    the controller's display. Record an inventory locally without exposing
+    tokens, serial numbers or other private identifiers.
+  * Check current API documentation and account entitlement for rate limits,
+    history endpoints, date ranges and aggregation. The API describes history
+    endpoints, but their existence does not guarantee historical access for
+    this device or account. Test a small range if permitted. Do not rely on
+    backfill or a fixed cloud refresh interval.
+
+If the installation is not exposed through myUplink, stop before building
+the collector and investigate the actual supported service or a supported
+local interface. Home Assistant is an optional alternative data source only
+if the owner already operates it or chooses to set it up; this design does
+not require it. A cloud-hosted site cannot assume access to a private LAN.
+Any local bridge would need a separate, authenticated, outbound-only design.
+Avoid undocumented scraping or exposing a controller to the internet.
+
+3. Architecture
+---------------
+  Heat pump -> supported cloud service -> scheduled PHP collector
+      -> MySQL -> read-only PHP JSON API -> browser dashboard
+
+The browser talks only to the same-origin PHP application, never directly
+to the cloud API or database. A cron job invokes a CLI collector independently
+of web requests; page views do not trigger upstream polling. Keep a small
+source adapter boundary (discover devices/points and fetch readings) so an
+alternative source can be evaluated later without changing the dashboard.
+Use PHP 8 with PDO and prepared statements, MySQL/InnoDB and a responsive
+browser UI with a maintained charting library if needed. Confirm the hosting
+provider supports the selected PHP extensions and scheduled jobs.
+
+Collector lifecycle:
+  1. Take a non-blocking, host-wide lock so overlapping scheduled runs cannot
+     duplicate work. Record start and finish status; always release the lock.
+  2. Refresh credentials when required, persisting rotated tokens atomically.
+     Enumerate configured devices and fetch permitted points in batches where
+     supported. Refresh point metadata periodically, not on every chart load.
+  3. Validate types and units, store observations transactionally, and mark
+     missing or invalid values as unavailable rather than zero. Preserve the
+     source timestamp when present and separately record collection time.
+  4. On 429 honor Retry-After when supplied and back off with jitter; on
+     transient errors use bounded backoff on later runs. On persistent 401 or
+     revoked authorization, stop retrying until the owner reconnects. Record
+     a sanitized error and last successful collection time.
+
+Start with a configurable conservative schedule, for example every 5 minutes,
+only after checking the actual quota and source update frequency. Account
+for all API calls and other clients such as Home Assistant sharing the quota.
+Polling faster than the upstream refresh does not create new measurements.
+If source timestamps are absent, label values with collection time as
+observations, not measured-at times. A failed poll creates a visible gap;
+it must not silently copy the previous value as a fresh reading.
+
+4. Data model and retention
+---------------------------
+Use UTC in storage and convert to the owner's chosen timezone for display.
+The minimum logical schema (actual types and indexes to be finalized against
+the host's MySQL version):
+  * connection: source, authorization status, last success/error and
+    timestamps; encrypted credential material is stored separately from
+    public web files.
+  * device: connection ID, upstream device ID and display name; unique
+    (connection ID, upstream device ID).
+  * point: device ID, upstream point ID, name, unit, value type and enabled
+    flag; unique (device ID, upstream point ID). Retain original metadata and
+    require explicit mapping of discovered points to dashboard roles.
+  * observation: point ID, nullable source time, collection time, numeric
+    or text value, and validity/quality. Index (point ID, collection time)
+    and (point ID, source time). When the source provides a stable timestamp
+    for an actual measurement, deduplicate by (point ID, source time); when
+    it does not, store distinct scheduled observations by collection time
+    instead. Repeated polls must not masquerade as new source measurements.
+  * collection_run: start/end, result and sanitized error for diagnostics.
+
+Store enough precision for the source, retain raw values and units, and
+avoid guessing scaling or treating enumerations as numbers. Configure raw
+retention (initial proposal: 12 months) and a daily cleanup job; show that
+older data will be removed. Estimate storage from enabled points, polling
+frequency and retention before enabling all points. Add optional aggregates
+later only with explicit counts, coverage and min/max; do not discard raw
+data before confirming the retention policy. Regularly back up the database
+and encrypted credentials, test restores, and honor the provider's data
+retention and deletion terms.
+
+5. Dashboard and interpretation
+-------------------------------
+Provide a mobile-friendly overview with latest values, units, source/collection
+time, connection status and a clear stale indicator. Let the owner configure
+which available points play each role, without hard-coded point IDs. Show
+unavailable features as unavailable, not zero. Candidate views:
+  * Temperatures: outdoor, supply, return, indoor and hot water, if exposed;
+    overlay supply/return and outdoor temperature with separately labeled axes.
+  * Operation: compressor state/frequency, heating/hot-water mode, starts,
+    defrost and auxiliary heat, only where the corresponding data exists.
+  * Energy: electrical consumption and produced heat, only where supported
+    and their measurement semantics and units are known.
+  * A custom multi-sensor chart with date range, series selection, unit-aware
+    axes, legend and hover values/timestamps. Offer presets such as 24 hours,
+    7 days and 30 days, plus a bounded custom range.
+
+Align series on a shared time axis without inventing samples. Plot gaps for
+missing/stale data, annotate outages and never interpolate operating states
+or counters. If resampling is needed, show the aggregation and coverage;
+do not combine incompatible units on an unlabeled axis. Supply minus return
+is valid only for compatible temperature units and readings sufficiently
+close in time; otherwise show no result. State values must use their discrete
+labels, not averaged numeric codes.
+
+COP is optional, not a default calculated from unrelated temperatures. An
+energy-based period COP requires reliable heat-output and electrical-input
+energy for the same interval and system boundary, consistent units and
+adequate coverage; calculate heat energy divided by electrical energy, not
+an average of instantaneous ratios. Exclude zero/negative denominators,
+counter resets and incomplete intervals, and distinguish measured from
+estimated values. Do not label a result COP if these conditions are unmet.
+
+6. Application interface and security
+-------------------------------------
+Use a private login before serving pages or JSON. Require HTTPS, secure
+HttpOnly SameSite session cookies, password hashing using PHP's password API,
+session ID rotation after login, and rate-limited login. Protect all
+state-changing requests, including logout, point configuration and OAuth
+connection, with CSRF tokens; validate OAuth state and the exact registered
+redirect URI. Keep client secrets, tokens and database credentials outside
+the web root and logs; restrict file permissions and encrypt stored tokens
+with a key held separately from the database. Do not expose tokens in HTML,
+JavaScript, exports or error messages.
+
+The backend exposes authenticated read-only endpoints for devices/points,
+latest readings, bounded history queries and collection health. Validate
+device/point ownership, input types, allowed ranges and maximum result size;
+use prepared SQL and escape rendered text. Limit chart queries via server-side
+aggregation or pagination with an explicit interval. Do not expose a generic
+SQL endpoint or cloud write operations. Use least-privilege database access,
+keep dependencies patched, and avoid logging sensitive request details.
+
+7. Delivery and acceptance
+--------------------------
+  1. Complete the source/hosting spike and document the discovered points
+     and permissions. If access is blocked, select a supported source first.
+  2. Implement account connection, device/point discovery and a read-only
+     collector; verify scheduled collection, token renewal, duplicate
+     handling, quota backoff and recovery from an outage.
+  3. Add storage, retention and backup/restore; verify timezones, missing
+     timestamps, unit/type changes and counter resets using representative
+     fixtures without personal data.
+  4. Build the overview and multi-series charts; verify mobile layout, chart
+     alignment, gaps, stale readings, range limits and absent sensor roles.
+  5. Add derived metrics only after their inputs and semantics are verified.
+     Check authentication, CSRF, authorization and secret handling before
+     deploying behind HTTPS. Document setup and operational recovery.
+
+Open decisions for the owner: exact controller/firmware and cloud service;
+available sensors and subscription; hosting cron/HTTPS/secret storage support;
+desired retention, timezone and primary comparisons; whether Home Assistant
+already exists; and whether historical backfill is permitted and useful.
+
+References (check current documentation and terms during the spike)
+------------------------------------------------------------------
+NIBE MHB 05: https://www.nibe.eu/en-eu/products/heat-pumps/air-water-heat-pumps/mhb-05
+NIBE S2125 product information: https://assetstore.nibe.se/hcms/v2.3/entity/document/121056/storage/MTIxMDU2LzAvbWFzdGVy/download/CIL%20EN%20S2125%20M12867-2
+myUplink developer portal: https://dev.myuplink.com/
+myUplink API reference: https://api.myuplink.com/swagger/index.html
+myUplink API agreement: https://dev.myuplink.com/api-services-agreement
+Home Assistant myUplink integration: https://www.home-assistant.io/integrations/myuplink/
