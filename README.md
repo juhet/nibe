@@ -1,15 +1,15 @@
-# NIBE-dashboard 0.1
+# NIBE-dashboard
 
 Een eerste, alleen-lezen basis voor het dashboard uit [DESIGN.txt](DESIGN.txt).
-De pagina toont meetpunten en de laatst opgeslagen waarden uit MySQL. Er is
-nog geen myUplink-koppeling of gegevensverzamelaar; die worden pas toegevoegd
-nadat is gecontroleerd of de daadwerkelijke controller, firmware en het
-myUplink-account toegang bieden, zoals beschreven in het ontwerp. De pagina
-vult ontbrekende metingen niet aan met verzonnen waarden.
+De pagina toont ontdekte meetpunten en de laatst opgeslagen waarden uit MySQL.
+De afzonderlijke gegevensverzamelaar ontdekt systemen en meetpunten via
+myUplink en slaat hun actuele waarden op. De pagina start zelf geen verzameling
+en vult ontbrekende metingen niet aan met verzonnen waarden.
 
 ## Benodigd
 
-- PHP 8 met PDO en de PDO MySQL-driver
+- PHP 8.1 of nieuwer met PDO en de PDO MySQL-driver
+- PHP cURL-extensie voor uitgaande HTTPS-verzoeken naar myUplink
 - MySQL of MariaDB met InnoDB
 - HTTPS op de website
 
@@ -35,6 +35,9 @@ website of in Git:
 | `NIBE_DB_USER` | Databasegebruiker |
 | `NIBE_DB_PASSWORD` | Wachtwoord van de databasegebruiker |
 | `NIBE_INSTALLATION_LABEL` | Optionele naam die bovenaan het dashboard staat |
+| `NIBE_COLLECTOR_TOKEN` | Lang, willekeurig geheim voor de collector-aanroep |
+| `NIBE_MYUPLINK_CLIENT_ID` | Client-ID van de geregistreerde myUplink API-app |
+| `NIBE_MYUPLINK_CLIENT_SECRET` | Client secret van de geregistreerde myUplink API-app |
 
 Als de provider geen omgevingsvariabelen aanbiedt, vraag de provider om een
 geheime configuratie buiten de webroot te laden. Maak geen `.env`-bestand in
@@ -42,20 +45,40 @@ deze repository of in de publiek bereikbare `httpdocs`-map. De deployworkflow
 plaatst de repositorybestanden in `httpdocs/`; de mappen `app/` en `database/`
 blokkeren directe webverzoeken met `.htaccess`.
 
-Voor de latere myUplink-koppeling horen de OAuth-clientgegevens eveneens in de
-omgeving van de hostingprovider: `NIBE_MYUPLINK_CLIENT_ID`,
-`NIBE_MYUPLINK_CLIENT_SECRET` en `NIBE_MYUPLINK_REDIRECT_URI`. In versie 0.1
-worden deze variabelen nog niet gebruikt en is er geen OAuth-login of
-gegevensverzamelaar. Configureer nog geen NIBE-accountwachtwoord: de beoogde
-koppeling gebruikt de door myUplink ondersteunde OAuth-toestemming met alleen
-leesrechten. Het systeem en de meetpunten moeten via die koppeling worden
-ontdekt; hardcode geen installatie- of meetpunt-ID's.
+Registreer een API-app via het myUplink-ontwikkelaarsportaal, vraag uitsluitend
+de `READSYSTEM`-machtiging aan en stel de client ID en het client secret in
+zoals hierboven beschreven. De collector vraagt voor iedere run zelf een
+tijdelijk OAuth access token aan; dit token wordt alleen in het geheugen
+gebruikt en niet opgeslagen. Configureer geen NIBE-accountwachtwoord.
+Systeem-, apparaat- en meetpunt-ID's worden ontdekt via de API en zijn niet
+hardgecodeerd.
+
+## Gegevens verzamelen
+
+De collector is een apart, alleen-lezen endpoint. Roep
+`https://<website>/collect.php` periodiek aan met een
+`Authorization`-header met het collector-token als Bearer-token. Voeg het token
+niet toe aan de URL. Een geslaagde aanroep geeft een JSON-status met het aantal
+gevonden apparaten, meetpunten en opgeslagen waarnemingen. Een mislukte
+aanroep geeft een foutstatus; technische details en tokens worden niet in de
+HTTP-respons getoond. Gelijktijdige runs worden geweigerd. Bij HTTP 429 volgt
+maximaal één korte retry als `Retry-After` binnen vijf seconden valt; anders
+wordt de run als mislukt geregistreerd zodat de volgende geplande aanroep
+later opnieuw kan proberen.
+
+Stel de pollfrequentie af op de API-quota en verversingsfrequentie. Controleer
+ook dat de hostingprovider de Collector-tokenheader naar PHP doorgeeft. Het
+endpoint schrijft uitsluitend gegevens naar de eigen database en wijzigt geen
+warmtepompinstellingen.
 
 ## Controleren
 
 Na het importeren van het schema en het instellen van de databasevariabelen
 opent de startpagina. Zonder opgeslagen meetpunten toont de pagina dat er nog
-geen gegevens zijn. Bij ontbrekende of onbereikbare databaseconfiguratie wordt
-een algemene melding getoond; technische foutdetails of inloggegevens worden
-niet in de pagina weergegeven. Waarden worden als aangeleverd getoond en alle
-tijden zijn UTC.
+geen gegevens zijn. Na een geslaagde collector-aanroep toont zij de ontdekte
+meetpunten en laatste waarden. Bij ontbrekende of onbereikbare
+databaseconfiguratie wordt een algemene melding getoond; technische foutdetails
+of inloggegevens worden niet in de pagina weergegeven. Waarden worden als
+aangeleverd getoond en alle tijden zijn UTC.
+
+Voer de gerichte tests uit met `php tests/collector_test.php`.
