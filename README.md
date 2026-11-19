@@ -37,6 +37,7 @@ website of in Git:
 | `NIBE_DB_USER` | Databasegebruiker |
 | `NIBE_DB_PASSWORD` | Wachtwoord van de databasegebruiker |
 | `NIBE_INSTALLATION_LABEL` | Optionele naam die bovenaan het dashboard staat |
+| `NIBE_DASHBOARD_ROLE_MAP` | Optionele JSON-koppeling van extra prestatie-rollen aan lokale meetpunt-ID's |
 | `NIBE_COLLECTOR_TOKEN` | Lang, willekeurig geheim voor de collector-aanroep |
 | `NIBE_MYUPLINK_CLIENT_ID` | Client-ID van de geregistreerde myUplink API-app |
 | `NIBE_MYUPLINK_CLIENT_SECRET` | Client secret van de geregistreerde myUplink API-app |
@@ -104,9 +105,35 @@ bronpunt-ID. Ontbrekende metingen blijven leeg; er worden geen waarden
 verzonnen. De KPI's tonen compressorstarts afgeleid van waargenomen overgangen
 van nul naar een positieve compressorfrequentie, het gemiddelde verschil tussen
 aanvoer en retour voor metingen die maximaal vijf minuten uit elkaar liggen en
-de gemiddelde duur van afgeronde compressorritten. Delta T wordt alleen
-getoond als de temperaturen dezelfde eenheid hebben; zonder voldoende gegevens
-blijft een KPI leeg.
+de gemiddelde, langste en kortste duur van afgeronde compressorritten. Delta T
+nu en gemiddeld over 24 uur worden alleen getoond als de temperaturen dezelfde
+eenheid hebben en voldoende recente, bij elkaar passende metingen beschikbaar
+zijn.
+
+**Prestatie-inzichten** tonen COP alleen als expliciet gekoppelde warmte- en
+elektrische vermogens beschikbaar zijn met eenheden W of kW en meettijden
+maximaal vijf minuten uit elkaar. COP is de gemiddelde verhouding van die
+waargenomen vermogens; een waarschuwing verschijnt als de actuele COP meer dan
+20% afwijkt van het 24-uursgemiddelde. Elektriciteits- en warmteverbruik worden
+alleen uit expliciet gekoppelde cumulatieve energietellers in kWh of Wh berekend,
+met een meting binnen zes uur van de periodegrens en een recente eindmeting.
+Periodegrenzen voor vandaag zijn UTC. Compressorfrequentiebanden worden over
+de afgelopen 24 uur berekend. De defrostperiode is instelbaar op 24 uur, 7 of
+30 dagen. Compressor- en defrostcijfers vereisen voldoende recente metingen en
+een meting vóór de gekozen periode; anders blijven ze niet beschikbaar.
+Frequentiebanden en defrosts worden berekend uit de waargenomen frequentie en
+expliciet gekoppelde numerieke defrostwaarde (0 = uit, groter dan 0 = actief);
+intervallen met gaten van meer dan een uur worden niet als bedrijfstijd gerekend.
+
+Extra rollen kunnen optioneel worden gekoppeld via `NIBE_DASHBOARD_ROLE_MAP`,
+een JSON-object waarvan de waarden de lokale **Meetpunt-ID's** zijn die in het
+uitgeklapte meetpuntenoverzicht staan. Ondersteunde rollen zijn
+`electric_power`, `heat_power`, `electric_energy`, `heat_energy` en `defrost`.
+Bijvoorbeeld: `{"electric_power":"12","heat_power":"13","electric_energy":"14","heat_energy":"15","defrost":"16"}`.
+Gebruik alleen meetpunten waarvan betekenis en eenheid bekend zijn; zonder
+geldige invoer blijft de betreffende prestatie als niet beschikbaar getoond.
+De grafiek bevat ook graadminuten, compressorfrequentie en buitentemperatuur,
+wanneer die metingen beschikbaar zijn.
 
 Onder **Metingen vergelijken** worden de beschikbare standaardtemperaturen
 getoond: tapwater, berekende toevoer, aanvoer, retour, temperatuur in huis en

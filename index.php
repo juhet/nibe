@@ -12,7 +12,8 @@ $measurements = [];
 $connections = [];
 $defaultRoleMapping = [];
 $historyByRole = [];
-$kpis = ['compressor_starts' => null, 'average_delta_t' => null, 'average_run_seconds' => null];
+$performance = [];
+$roleUnits = [];
 $databaseReady = true;
 $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
@@ -36,13 +37,20 @@ try {
     $statement = $database->prepare($query);
     $statement->execute();
     $measurements = $statement->fetchAll();
-    $defaultRoleMapping = nibe_dashboard_default_role_mapping($measurements);
+    $defaultRoleMapping = nibe_dashboard_role_mapping(
+        $measurements,
+        nibe_env('NIBE_DASHBOARD_ROLE_MAP')
+    );
     $measurementById = [];
     foreach ($measurements as $measurement) {
         $measurementById[(string) $measurement['measurement_point_id']] = $measurement;
     }
+    foreach ($defaultRoleMapping as $role => $measurementId) {
+        $roleUnits[$role] = (string) ($measurementById[$measurementId]['unit'] ?? '');
+    }
 
-    $historyRoles = ['frequency', 'supply', 'return'];
+    $historyRoles = ['frequency', 'supply', 'return', 'calculated_supply', 'outdoor', 'degree_minutes',
+        'electric_power', 'heat_power', 'electric_energy', 'heat_energy', 'defrost'];
     $historyIds = [];
     foreach ($historyRoles as $role) {
         if (isset($defaultRoleMapping[$role])) {
@@ -50,8 +58,9 @@ try {
         }
     }
     if ($historyIds !== []) {
-        $placeholders = implode(', ', array_fill(0, count($historyIds), '?'));
-        $historyStart = $now->modify('-24 hours')->format('Y-m-d H:i:s');
+        $uniqueHistoryIds = array_values(array_unique(array_values($historyIds)));
+        $placeholders = implode(', ', array_fill(0, count($uniqueHistoryIds), '?'));
+        $historyStart = $now->modify('-30 days')->format('Y-m-d H:i:s');
         $historyEnd = $now->format('Y-m-d H:i:s');
         $historyStatement = $database->prepare(
             'SELECT measurement_point_id, raw_value, source_timestamp, collected_at
@@ -62,7 +71,7 @@ try {
              ORDER BY COALESCE(source_timestamp, collected_at), id'
         );
         $historyStatement->execute([
-            ...array_values($historyIds),
+            ...$uniqueHistoryIds,
             $historyStart,
             $historyEnd,
             $historyStart,
@@ -72,30 +81,51 @@ try {
             foreach ($historyIds as $role => $measurementId) {
                 if ((string) $observation['measurement_point_id'] === $measurementId) {
                     $historyByRole[$role][] = $observation;
-                    break;
                 }
             }
         }
 
-        if (isset($historyIds['frequency'])) {
-            $baselineStatement = $database->prepare(
-                'SELECT raw_value, source_timestamp, collected_at
-                 FROM nibe_observations
-                 WHERE measurement_point_id = ?
-                   AND (source_timestamp < ? OR (source_timestamp IS NULL AND collected_at < ?))
-                 ORDER BY COALESCE(source_timestamp, collected_at) DESC, id DESC
-                 LIMIT 1'
-            );
-            $baselineStatement->execute([$historyIds['frequency'], $historyStart, $historyStart]);
-            $baseline = $baselineStatement->fetch();
-            if ($baseline !== false) {
-                $historyByRole['frequency'][] = $baseline;
+        $baselineStatement = $database->prepare(
+            'SELECT raw_value, source_timestamp, collected_at
+             FROM nibe_observations
+             WHERE measurement_point_id = ?
+               AND (source_timestamp < ? OR (source_timestamp IS NULL AND collected_at < ?))
+             ORDER BY COALESCE(source_timestamp, collected_at) DESC, id DESC
+             LIMIT 1'
+        );
+        $baselineWindows = [
+            'frequency' => [$now->modify('-24 hours')],
+            'defrost' => [
+                $now->modify('-24 hours'),
+                $now->modify('-7 days'),
+                $now->modify('-30 days'),
+            ],
+            'electric_energy' => [
+                new DateTimeImmutable($now->format('Y-m-d 00:00:00'), new DateTimeZone('UTC')),
+                $now->modify('-7 days'),
+                $now->modify('-30 days'),
+            ],
+            'heat_energy' => [
+                new DateTimeImmutable($now->format('Y-m-d 00:00:00'), new DateTimeZone('UTC')),
+                $now->modify('-7 days'),
+                $now->modify('-30 days'),
+            ],
+        ];
+        foreach ($baselineWindows as $role => $starts) {
+            if (!isset($historyIds[$role])) {
+                continue;
+            }
+            foreach ($starts as $start) {
+                $boundary = $start->format('Y-m-d H:i:s');
+                $baselineStatement->execute([$historyIds[$role], $boundary, $boundary]);
+                $baseline = $baselineStatement->fetch();
+                if ($baseline !== false) {
+                    $historyByRole[$role][] = $baseline;
+                }
             }
         }
     }
-    $supplyUnit = $measurementById[$defaultRoleMapping['supply'] ?? '']['unit'] ?? '';
-    $returnUnit = $measurementById[$defaultRoleMapping['return'] ?? '']['unit'] ?? '';
-    $kpis = nibe_dashboard_kpis($historyByRole, (string) $supplyUnit, (string) $returnUnit, $now);
+    $performance = nibe_dashboard_performance_metrics($historyByRole, $roleUnits, $now);
 
     $connectionStatement = $database->prepare(
         'SELECT source, authorization_status, last_success_at
@@ -110,6 +140,40 @@ try {
 }
 
 $installationLabel = nibe_env('NIBE_INSTALLATION_LABEL', 'NIBE-installatie');
+$performance += [
+    'periods' => [],
+    'cop_now' => null,
+    'cop_warning' => false,
+    'delta_t_now' => null,
+    'compressor_starts' => null,
+    'average_run_seconds' => null,
+    'longest_run_seconds' => null,
+    'shortest_run_seconds' => null,
+    'frequency_distribution' => [],
+    'defrost_periods' => [],
+];
+$selectedDefrostPeriod = $_GET['defrost_period'] ?? '24h';
+if (!is_string($selectedDefrostPeriod)
+    || !in_array($selectedDefrostPeriod, ['24h', '7d', '30d'], true)) {
+    $selectedDefrostPeriod = '24h';
+}
+$selectedDefrostLabel = ['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'][$selectedDefrostPeriod];
+$currentHeatPower = null;
+if (isset($defaultRoleMapping['heat_power'], $measurementById[$defaultRoleMapping['heat_power']])) {
+    $heatPowerMeasurement = $measurementById[$defaultRoleMapping['heat_power']];
+    $freshness = $heatPowerMeasurement['source_timestamp'] ?? $heatPowerMeasurement['collected_at'];
+    if (is_string($heatPowerMeasurement['raw_value']) && is_numeric($heatPowerMeasurement['raw_value'])
+        && is_string($freshness)) {
+        try {
+            $freshnessTime = (new DateTimeImmutable($freshness, new DateTimeZone('UTC')))->getTimestamp();
+            if ($freshnessTime >= $now->getTimestamp() - 900 && $freshnessTime <= $now->getTimestamp()) {
+                $currentHeatPower = $heatPowerMeasurement['raw_value'] . ' ' . ($roleUnits['heat_power'] ?? '');
+            }
+        } catch (Exception $exception) {
+            $currentHeatPower = null;
+        }
+    }
+}
 $importantRoles = [
     'indoor' => 'Temperatuur in huis',
     'hot_water' => 'Temperatuur warm tapwater',
@@ -119,8 +183,11 @@ $importantRoles = [
     'calculated_supply' => 'Berekende toevoer',
     'supply' => 'Aanvoer',
     'return' => 'Retour',
+    'heat_power' => 'Warmtevermogen',
+    'electric_power' => 'Elektrisch vermogen',
 ];
-$chartRoleOrder = ['hot_water', 'calculated_supply', 'supply', 'return', 'indoor', 'outdoor'];
+$chartRoleOrder = ['hot_water', 'calculated_supply', 'supply', 'return', 'indoor', 'outdoor',
+    'degree_minutes', 'frequency'];
 $chartPointIds = array_values(array_filter(array_map(
     static fn (string $role): ?string => $defaultRoleMapping[$role] ?? null,
     $chartRoleOrder
@@ -156,6 +223,11 @@ $chartPointIds = array_values(array_filter(array_map(
         .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .5rem 1rem; margin-top: 1rem; }
         .kpi { padding: .65rem .75rem; background: #eaf2f4; border-radius: .4rem; }
         .kpi strong { display: block; font-size: 1.2rem; }
+        .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .5rem 1rem; }
+        .metric { padding: .7rem; background: #f3f6f8; border-radius: .4rem; }
+        .metric strong { display: block; font-size: 1.1rem; }
+        .warning { padding: .65rem; color: #8a4b00; background: #fff3cd; border-radius: .4rem; }
+        .bands { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: .5rem; }
         .connections { margin-top: 1.5rem; padding: 1rem; background: white; border-radius: .5rem; }
         .connections h2 { margin: 0 0 .5rem; font-size: 1rem; }
         .connections ul { margin: 0; padding-left: 1.25rem; }
@@ -233,16 +305,67 @@ $chartPointIds = array_values(array_filter(array_map(
                     <?php endif; ?>
                 <?php endforeach; ?>
             </div>
-            <p class="muted">Kerncijfers afgelopen 24 uur</p>
-            <div class="kpis" aria-label="Kerncijfers afgelopen 24 uur">
-                <div class="kpi">Compressorstarts<strong><?= $kpis['compressor_starts'] === null ? '—' : nibe_escape((string) $kpis['compressor_starts']) ?></strong></div>
-                <div class="kpi">Gemiddelde ΔT<strong><?= $kpis['average_delta_t'] === null ? '—' : nibe_escape(number_format($kpis['average_delta_t'], 1, ',', '') . ' ' . $supplyUnit) ?></strong></div>
-                <div class="kpi">Gemiddelde compressor-runduur<strong><?= $kpis['average_run_seconds'] === null ? '—' : nibe_escape(number_format($kpis['average_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
+            <p class="muted">Compressor en warmteafgifte — afgelopen 24 uur</p>
+            <div class="kpis">
+                <div class="kpi">Compressorstarts<strong><?= $performance['compressor_starts'] === null ? 'Niet beschikbaar' : nibe_escape((string) $performance['compressor_starts']) ?></strong></div>
+                <div class="kpi">Gemiddelde runduur<strong><?= $performance['average_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['average_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
+                <div class="kpi">Langste runduur<strong><?= $performance['longest_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['longest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
+                <div class="kpi">Kortste runduur<strong><?= $performance['shortest_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['shortest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
+                <div class="kpi">ΔT nu<strong><?= $performance['delta_t_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['delta_t_now'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
+                <div class="kpi">Gemiddelde ΔT<strong><?= $performance['periods']['24h']['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['24h']['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
+                <div class="kpi">Warmtevermogen nu<strong><?= $currentHeatPower === null ? 'Niet beschikbaar' : nibe_escape($currentHeatPower) ?></strong></div>
             </div>
         </section>
+        <section class="panel" aria-labelledby="performance-title">
+            <h2 id="performance-title">Prestatie-inzichten</h2>
+            <h3>Efficiëntie (COP) en energie</h3>
+            <div class="metric-grid" aria-label="COP">
+                <div class="metric">COP nu<strong><?= $performance['cop_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['cop_now'], 2, ',', '')) ?></strong></div>
+                <div class="metric">COP vandaag<strong><?= ($performance['periods']['today']['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['cop'], 2, ',', '')) ?></strong></div>
+                <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
+                    <div class="metric">COP <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['cop'], 2, ',', '')) ?></strong></div>
+                <?php endforeach; ?>
+            </div>
+            <?php if ($performance['cop_warning']): ?>
+                <p class="warning" role="status">COP nu wijkt meer dan 20% af van het gemiddelde van de afgelopen 24 uur.</p>
+            <?php endif; ?>
+            <div class="kpis">
+                <div class="kpi">Elektriciteit vandaag (UTC)<strong><?= ($performance['periods']['today']['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['electricity'], 2, ',', '') . ' kWh') ?></strong></div>
+                <div class="kpi">Warmte vandaag (UTC)<strong><?= ($performance['periods']['today']['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['heat'], 2, ',', '') . ' kWh') ?></strong></div>
+                <?php foreach (['7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
+                    <div class="kpi">Elektriciteit <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['electricity'], 2, ',', '') . ' kWh') ?></strong></div>
+                    <div class="kpi">Warmte <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['heat'], 2, ',', '') . ' kWh') ?></strong></div>
+                <?php endforeach; ?>
+            </div>
+            <h3>Compressorfrequentie — afgelopen 24 uur</h3>
+            <div class="bands">
+                <?php foreach (['20-30' => '20–30 Hz', '30-40' => '30–40 Hz', '40-50' => '40–50 Hz', '50-60' => '50–60 Hz', '60+' => '60 Hz of hoger'] as $band => $label): ?>
+                    <div class="metric"><?= nibe_escape($label) ?><strong><?= ($performance['frequency_distribution'][$band] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['frequency_distribution'][$band], 1, ',', '') . '%') ?></strong></div>
+                <?php endforeach; ?>
+            </div>
+            <form method="get" class="controls">
+                <label>Periode ontdooien
+                    <select name="defrost_period">
+                        <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
+                            <option value="<?= nibe_escape($period) ?>"<?= $selectedDefrostPeriod === $period ? ' selected' : '' ?>><?= nibe_escape($label) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <button type="submit">Toon periode</button>
+            </form>
+            <?php $defrost = $performance['defrost_periods'][$selectedDefrostPeriod] ?? []; ?>
+            <h3>Ontdooien — <?= nibe_escape($selectedDefrostLabel) ?></h3>
+            <div class="metric-grid">
+                <div class="metric">Aantal<strong><?= ($defrost['count'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape((string) $defrost['count']) ?></strong></div>
+                <div class="metric">Totale duur<strong><?= ($defrost['seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
+                <div class="metric">Gemiddeld interval<strong><?= ($defrost['average_interval_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_interval_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong></div>
+                <div class="metric">Tijd tijdens draaien<strong><?= ($defrost['percent'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['percent'], 1, ',', '') . '%') ?></strong></div>
+            </div>
+            <p class="muted">COP en energie worden alleen getoond wanneer compatibele vermogens- of energietellers zijn gekoppeld. Energietellerwaarden moeten in kWh of Wh staan en actuele begin- en eindmetingen hebben.</p>
+        </section>
         <section class="panel" aria-labelledby="chart-title">
-            <h2 id="chart-title">Metingen vergelijken</h2>
-            <p class="muted">De standaardtemperaturen worden automatisch getoond. Verschillende eenheden krijgen een eigen grafiek; waarden tussen metingen worden als schatting getoond.</p>
+            <h2 id="chart-title">Regelgedrag en warmteafgifte vergelijken</h2>
+            <p class="muted">Aanvoer, retour en berekende aanvoer tonen de warmteafgifte; graadminuten, compressorfrequentie en buitentemperatuur helpen regelpatronen te herkennen. Verschillende eenheden krijgen een eigen grafiek.</p>
             <div class="controls">
                 <label>Periode
                     <select id="chart-period">
@@ -273,7 +396,7 @@ $chartPointIds = array_values(array_filter(array_map(
                 ?>
                 <article class="measurement">
                     <h2><?= nibe_escape($measurement['name']) ?></h2>
-                    <p class="device muted"><?= nibe_escape($measurement['device_name']) ?> · Bron-ID: <?= nibe_escape($measurement['source_point_id']) ?></p>
+                    <p class="device muted"><?= nibe_escape($measurement['device_name']) ?> · Meetpunt-ID: <?= nibe_escape((string) $measurement['measurement_point_id']) ?> · Bron-ID: <?= nibe_escape($measurement['source_point_id']) ?></p>
                     <p class="value">
                         <?= $measurement['raw_value'] === null ? 'Geen meting' : nibe_escape($measurement['raw_value']) ?>
                         <?php if (!$isEmpty && $measurement['unit'] !== null && $measurement['unit'] !== ''): ?>
