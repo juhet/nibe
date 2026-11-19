@@ -26,4 +26,17 @@ expect_same(null, nibe_dashboard_sparkline([
 ], null), 'non-numeric observations do not produce a chart');
 expect_same(null, nibe_dashboard_sparkline([], null), 'empty history does not produce a chart');
 
+$request = nibe_dashboard_history_request(['points' => '1,22', 'start' => '100', 'end' => '200']);
+expect_same(['points' => ['1', '22'], 'start' => 100, 'end' => 200], $request, 'valid history request');
+foreach ([
+    ['points' => '1,1', 'start' => '100', 'end' => '200'],
+    ['points' => '1,2,3,4,5,6,7', 'start' => '100', 'end' => '200'],
+    ['points' => '1 OR 1=1', 'start' => '100', 'end' => '200'],
+    ['points' => '1', 'start' => '100', 'end' => '2592101'],
+    ['points' => '1', 'start' => '200', 'end' => '100'],
+    ['points' => ['1'], 'start' => '100', 'end' => '200'],
+] as $invalid) {
+    expect_same(null, nibe_dashboard_history_request($invalid), 'invalid history request');
+}
+
 echo "Dashboard tests passed.\n";

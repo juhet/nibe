@@ -1,9 +1,8 @@
 # NIBE-dashboard
 
-Een eerste, alleen-lezen dashboard uit [DESIGN.txt](DESIGN.txt). De pagina
-toont ontdekte meetpunten als kaarten met de laatst opgeslagen waarden,
-verbindingsstatus en een trend van numerieke waarnemingen uit de afgelopen
-24 uur.
+Een alleen-lezen dashboard uit [DESIGN.txt](DESIGN.txt). De pagina toont
+verbindingsstatus, instelbare belangrijke meetpunten en een uitklapbaar
+overzicht van alle ontdekte meetpunten met hun laatst opgeslagen waarden.
 De afzonderlijke gegevensverzamelaar ontdekt systemen en meetpunten via
 myUplink en slaat hun actuele waarden op. De pagina start zelf geen verzameling
 en vult ontbrekende metingen niet aan met verzonnen waarden.
@@ -89,11 +88,33 @@ Na het importeren van het schema en het instellen van de databasevariabelen
 opent de startpagina. Zonder opgeslagen meetpunten toont de pagina dat er nog
 geen gegevens zijn. Na een geslaagde collector-aanroep toont zij de ontdekte
 meetpunten en laatste waarden. Meetpunten waarvan de bron- of verzameltijd
-meer dan 24 uur oud is, worden als verouderd aangeduid; niet-numerieke waarden
-blijven zichtbaar, maar worden niet in de trendgrafieken opgenomen. Bij
+meer dan 24 uur oud is, worden als verouderd aangeduid. Een oude brontijd
+kan ook een ongewijzigde waarde betekenen; het is geen bewijs dat de verbinding
+uitgevallen is. Bij
 ontbrekende of onbereikbare databaseconfiguratie wordt een algemene melding
 getoond; technische foutdetails of inloggegevens worden niet in de pagina
 weergegeven. Waarden worden als aangeleverd getoond en alle tijden zijn UTC.
+
+Kies onder **Belangrijkste metingen** voor elke gewenste rol het juiste
+ontdekte meetpunt. Namen zijn niet altijd uniek: controleer apparaat en
+bron-ID. Deze keuzes blijven alleen in de lokale browser bewaard; er worden
+geen meetpunten automatisch op naam gekoppeld. Niet ingestelde rollen tonen
+geen verzonnen waarden.
+
+Onder **Metingen vergelijken** kunnen maximaal zes meetpunten samen worden
+geselecteerd (Ctrl of ⌘ voor meerdere), ook buiten de ingestelde rollen.
+Kies 24 uur, 7 dagen, 30 dagen of een eigen periode van maximaal 30 dagen
+in UTC en klik op **Toon grafiek**. De grafiek gebruikt de brontijd, of
+de verzameltijd als de brontijd ontbreekt. Elke eenheid heeft een eigen
+grafiek met dezelfde tijdas. Wijs een punt aan of selecteer het met Tab voor
+de exacte waarde en tijd. Standaard worden alleen °C en Hz met lijnen
+verbonden; per reeks is de lijn aan of uit te zetten. Gebruik geen lijnen
+voor tellers of statuscodes. Lijnen zijn geen extra metingen en gaten van
+meer dan 24 uur blijven open. Andere numerieke waarden worden standaard
+als losse punten getoond; tekstwaarden blijven alleen als laatste waarde
+zichtbaar. Er worden maximaal 3000 recentste waarnemingen per meetpunt
+getoond; bij afkapping verschijnt een waarschuwing. Historie is alleen
+beschikbaar vanaf de eigen verzameling en wordt niet bij myUplink aangevuld.
 
 Voer de gerichte tests uit met `php tests/collector_test.php`,
 `php tests/collector_http_test.php` en `php tests/dashboard_test.php`.

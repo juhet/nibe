@@ -1,5 +1,33 @@
 <?php
 
+function nibe_dashboard_history_request(array $query): ?array
+{
+    $ids = $query['points'] ?? null;
+    $start = $query['start'] ?? null;
+    $end = $query['end'] ?? null;
+    if (!is_string($ids) || !is_string($start) || !is_string($end)
+        || !preg_match('/^[0-9]{1,10}$/D', $start)
+        || !preg_match('/^[0-9]{1,10}$/D', $end)) {
+        return null;
+    }
+
+    $points = explode(',', $ids);
+    if (count($points) < 1 || count($points) > 6) {
+        return null;
+    }
+    foreach ($points as $point) {
+        if (!preg_match('/^[1-9][0-9]{0,9}$/D', $point)) {
+            return null;
+        }
+    }
+    if (count(array_unique($points)) !== count($points)
+        || (int) $end <= (int) $start || (int) $end - (int) $start > 30 * 86400) {
+        return null;
+    }
+
+    return ['points' => $points, 'start' => (int) $start, 'end' => (int) $end];
+}
+
 function nibe_dashboard_sparkline(array $observations, ?string $unit): ?string
 {
     $points = [];

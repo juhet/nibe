@@ -15,7 +15,7 @@ $databaseReady = true;
 try {
     $database = nibe_database();
     $query = <<<'SQL'
-        SELECT d.display_name AS device_name, p.name, p.unit, o.raw_value,
+        SELECT d.display_name AS device_name, p.name, p.unit, p.source_point_id, o.raw_value,
                p.id AS measurement_point_id, o.source_timestamp, o.collected_at
         FROM nibe_measurement_points p
         INNER JOIN nibe_devices d ON d.id = p.device_id
@@ -28,26 +28,10 @@ try {
         )
         WHERE p.enabled = 1
         ORDER BY d.display_name, p.name
-        LIMIT 100
         SQL;
     $statement = $database->prepare($query);
     $statement->execute();
     $measurements = $statement->fetchAll();
-
-    $historyQuery = <<<'SQL'
-        SELECT o.measurement_point_id, o.raw_value, o.source_timestamp, o.collected_at
-        FROM nibe_observations o
-        INNER JOIN nibe_measurement_points p ON p.id = o.measurement_point_id
-        WHERE p.enabled = 1
-          AND o.collected_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY
-        ORDER BY o.measurement_point_id, o.collected_at DESC, o.id DESC
-        LIMIT 5000
-        SQL;
-    $historyStatement = $database->prepare($historyQuery);
-    $historyStatement->execute();
-    foreach ($historyStatement->fetchAll() as $observation) {
-        $historyByPoint[$observation['measurement_point_id']][] = $observation;
-    }
 
     $connectionStatement = $database->prepare(
         'SELECT source, authorization_status, last_success_at
@@ -61,7 +45,6 @@ try {
     $databaseReady = false;
 }
 
-$historyByPoint ??= [];
 $installationLabel = nibe_env('NIBE_INSTALLATION_LABEL', 'NIBE-installatie');
 $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 ?>
@@ -73,7 +56,7 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
     <title><?= nibe_escape($installationLabel) ?> — dashboard</title>
     <style>
         :root { color-scheme: light; font-family: system-ui, sans-serif; color: #17212b; background: #f3f6f8; }
-        body { margin: 0 auto; max-width: 70rem; padding: 2rem 1rem; }
+        body { margin: 0 auto; max-width: 90rem; padding: 2rem 1rem; }
         h1 { margin-bottom: .35rem; }
         .muted { color: #526170; }
         .notice { padding: 1rem; border-radius: .5rem; background: #fff3cd; }
@@ -89,6 +72,20 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         .connections { margin-top: 1.5rem; padding: 1rem; background: white; border-radius: .5rem; }
         .connections h2 { margin: 0 0 .5rem; font-size: 1rem; }
         .connections ul { margin: 0; padding-left: 1.25rem; }
+        .panel { margin-top: 1.5rem; padding: 1.25rem; background: white; border-radius: .5rem; }
+        .roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem; }
+        .role { padding: .8rem; background: #f3f6f8; border-radius: .5rem; min-width: 0; }
+        .role label { font-weight: 650; display: block; }
+        select, input, button { font: inherit; max-width: 100%; padding: .4rem; }
+        .role select { width: 100%; }
+        .controls { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+        .controls label { display: grid; gap: .25rem; }
+        .point-select { width: 100%; min-height: 10rem; }
+        .chart { width: 100%; height: auto; min-height: 15rem; overflow: visible; }
+        .chart text { font-size: 13px; fill: #34495a; }
+        .legend { display: flex; gap: 1rem; flex-wrap: wrap; padding: 0; list-style: none; }
+        .legend span { display: inline-block; width: 1em; height: .2em; vertical-align: middle; }
+        summary { cursor: pointer; font-weight: 650; }
     </style>
 </head>
 <body>
@@ -124,11 +121,77 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
     <?php elseif ($measurements === []): ?>
         <p class="notice">Er zijn nog geen meetpunten of metingen beschikbaar.</p>
     <?php else: ?>
-        <p class="muted">Verouderd betekent dat de bron- of verzameltijd meer dan 24 uur oud is. Grafieken tonen numerieke waarnemingen uit de afgelopen 24 uur; andere waarden blijven zichtbaar als laatste waarde.</p>
+        <p class="muted">Verouderd betekent dat de brontijd (of, als die ontbreekt, de verzameltijd) meer dan 24 uur oud is. Een oude brontijd kan ook betekenen dat een waarde niet is gewijzigd.</p>
+        <section class="panel" aria-labelledby="important-title">
+            <h2 id="important-title">Belangrijkste metingen</h2>
+            <p class="muted">Kies per onderdeel het juiste meetpunt. Keuzes worden alleen in deze browser bewaard. Controleer bij gelijke namen het apparaat en de bron-ID.</p>
+            <div class="roles">
+                <?php foreach ([
+                    'indoor' => 'Temperatuur in huis',
+                    'hot_water' => 'Temperatuur warm tapwater',
+                    'outdoor' => 'Buitentemperatuur',
+                    'degree_minutes' => 'Graadminuten',
+                    'frequency' => 'Huidige compressorfrequentie',
+                    'calculated_supply' => 'Berekende toevoer klimaatsysteem',
+                    'supply' => 'Aanvoer',
+                    'return' => 'Retour',
+                    'runtime' => 'Bedrijfstijd',
+                    'starts' => 'Aantal starts',
+                    'auxiliary' => 'Bijverwarming elektrisch element',
+                ] as $role => $label): ?>
+                    <div class="role">
+                        <label for="role-<?= nibe_escape($role) ?>"><?= nibe_escape($label) ?></label>
+                        <select id="role-<?= nibe_escape($role) ?>" class="role-select" data-role="<?= nibe_escape($role) ?>">
+                            <option value="">Niet ingesteld</option>
+                            <?php foreach ($measurements as $measurement): ?>
+                                <option value="<?= nibe_escape((string) $measurement['measurement_point_id']) ?>"
+                                    data-value="<?= nibe_escape($measurement['raw_value']) ?>"
+                                    data-has-value="<?= $measurement['raw_value'] === null ? '0' : '1' ?>"
+                                    data-unit="<?= nibe_escape($measurement['unit']) ?>"
+                                    data-source-time="<?= nibe_escape($measurement['source_timestamp']) ?>"
+                                    data-collected-at="<?= nibe_escape($measurement['collected_at']) ?>">
+                                    <?= nibe_escape($measurement['name'] . ' — ' . $measurement['device_name'] . ' [' . $measurement['source_point_id'] . ']') ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="value role-value">Niet ingesteld</p>
+                        <p class="muted role-time"></p>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </section>
+        <section class="panel" aria-labelledby="chart-title">
+            <h2 id="chart-title">Metingen vergelijken</h2>
+            <p class="muted">Selecteer maximaal zes meetpunten (Ctrl of ⌘ voor meerdere). Verschillende eenheden krijgen een eigen grafiek met dezelfde tijdas. Lijnen zijn slechts een visuele verbinding, geen extra metingen. Zet bij statuscodes en tellers geen lijn aan.</p>
+            <label for="chart-points">Meetpunten</label>
+            <select id="chart-points" class="point-select" multiple>
+                <?php foreach ($measurements as $measurement): ?>
+                    <option value="<?= nibe_escape((string) $measurement['measurement_point_id']) ?>"><?= nibe_escape($measurement['name'] . ' — ' . $measurement['device_name'] . ' [' . $measurement['source_point_id'] . ']') ?></option>
+                <?php endforeach; ?>
+            </select>
+            <p><button type="button" id="chart-use-roles">Gebruik eerste zes ingestelde metingen</button></p>
+            <div class="controls">
+                <label>Periode
+                    <select id="chart-period">
+                        <option value="1">24 uur</option>
+                        <option value="7">7 dagen</option>
+                        <option value="30">30 dagen</option>
+                        <option value="custom">Zelf kiezen (UTC)</option>
+                    </select>
+                </label>
+                <label>Van (UTC)<input type="datetime-local" id="chart-start" disabled></label>
+                <label>Tot (UTC)<input type="datetime-local" id="chart-end" disabled></label>
+                <button type="button" id="chart-show">Toon grafiek</button>
+            </div>
+            <p id="chart-message" class="muted" role="status">Kies meetpunten en een periode.</p>
+            <div id="charts"></div>
+            <noscript>Voor het kiezen van meetpunten en het tonen van grafieken is JavaScript nodig.</noscript>
+        </section>
+        <details class="panel">
+        <summary>Alle meetpunten (<?= count($measurements) ?>)</summary>
         <section class="measurements" aria-label="Laatste meetwaarden">
             <?php foreach ($measurements as $measurement): ?>
                 <?php
-                $pointHistory = $historyByPoint[$measurement['measurement_point_id']] ?? [];
                 $isStale = false;
                 $freshnessTimestamp = $measurement['source_timestamp'] ?? $measurement['collected_at'];
                 if ($freshnessTimestamp !== null) {
@@ -138,17 +201,13 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
                 ?>
                 <article class="measurement">
                     <h2><?= nibe_escape($measurement['name']) ?></h2>
-                    <p class="device muted"><?= nibe_escape($measurement['device_name']) ?></p>
+                    <p class="device muted"><?= nibe_escape($measurement['device_name']) ?> · Bron-ID: <?= nibe_escape($measurement['source_point_id']) ?></p>
                     <p class="value">
                         <?= $measurement['raw_value'] === null ? 'Geen meting' : nibe_escape($measurement['raw_value']) ?>
                         <?php if ($measurement['unit'] !== null && $measurement['unit'] !== ''): ?>
                             <span class="unit"><?= nibe_escape($measurement['unit']) ?></span>
                         <?php endif; ?>
                     </p>
-                    <?php if (($trend = nibe_dashboard_sparkline($pointHistory, $measurement['unit'])) !== null): ?>
-                        <?= $trend ?>
-                        <p class="muted">Numerieke waarnemingen, laatste 24 uur</p>
-                    <?php endif; ?>
                     <p class="muted">Bron tijd (UTC): <?= $measurement['source_timestamp'] === null ? 'Niet aangeleverd' : nibe_escape($measurement['source_timestamp']) ?></p>
                     <p class="muted">Verzameld (UTC): <?= $measurement['collected_at'] === null ? 'Niet beschikbaar' : nibe_escape($measurement['collected_at']) ?></p>
                     <p class="status<?= $isStale ? ' stale' : '' ?>">
@@ -157,6 +216,8 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
                 </article>
             <?php endforeach; ?>
         </section>
+        </details>
+        <script src="dashboard.js" defer></script>
     <?php endif; ?>
 </body>
 </html>
