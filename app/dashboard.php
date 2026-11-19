@@ -159,10 +159,19 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
     };
     $copSamples = [];
     $usedElectricSamples = [];
+    $electricStart = 0;
     foreach ($samples['heat_power'] as $heat) {
         $nearest = null;
         $distance = 301;
-        foreach ($samples['electric_power'] as $index => $electric) {
+        while (isset($samples['electric_power'][$electricStart])
+            && $samples['electric_power'][$electricStart]['time'] < $heat['time'] - 300) {
+            $electricStart++;
+        }
+        for ($index = $electricStart; $index < count($samples['electric_power']); $index++) {
+            $electric = $samples['electric_power'][$index];
+            if ($electric['time'] > $heat['time'] + 300) {
+                break;
+            }
             if (isset($usedElectricSamples[$index])) {
                 continue;
             }

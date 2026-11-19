@@ -150,6 +150,22 @@ $performance = nibe_dashboard_performance_metrics([
 ], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
 expect_same(4.0, $performance['cop_now'], 'COP converts compatible power units');
 expect_same(4.0, $performance['periods']['today']['cop'], 'daily COP averages observed power ratios');
+$pairedPower = nibe_dashboard_performance_metrics([
+    'electric_power' => [
+        ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:00:00'],
+        ['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:25:00'],
+        ['raw_value' => '4', 'source_timestamp' => '2026-01-02 11:35:00'],
+        ['raw_value' => '8', 'source_timestamp' => '2026-01-02 11:55:01'],
+    ],
+    'heat_power' => [
+        ['raw_value' => '8', 'source_timestamp' => '2026-01-02 11:30:00'],
+        ['raw_value' => '8', 'source_timestamp' => '2026-01-02 11:31:00'],
+        ['raw_value' => '8', 'source_timestamp' => '2026-01-02 11:50:00'],
+    ],
+], ['electric_power' => 'kW', 'heat_power' => 'kW'],
+    new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
+expect_same(3.0, $pairedPower['periods']['today']['cop'],
+    'power matching includes five-minute boundaries, prefers earlier ties and does not reuse samples');
 expect_same(2.0, $performance['periods']['today']['electricity'], 'energy consumption uses cumulative kWh readings');
 expect_same(6.0, $performance['periods']['today']['heat'], 'heat production uses cumulative kWh readings');
 expect_same(2, $performance['compressor_starts'], 'performance metrics count compressor starts');
