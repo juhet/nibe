@@ -67,12 +67,25 @@ expect_same('Supply line (EB101-BT12)', nibe_dashboard_point_name([
 ]), 'other devices preserve their source point name');
 expect_same(['electric_power' => '13', 'heat_power' => '598'], nibe_dashboard_default_role_mapping([
     ['measurement_point_id' => '13', 'source_device_id' => $deviceId, 'source_point_id' => '13'],
-    ['measurement_point_id' => '598', 'source_device_id' => $deviceId, 'source_point_id' => '598'],
-]), 'known power measurement IDs are mapped for performance analysis');
+    ['measurement_point_id' => '598', 'source_device_id' => $deviceId, 'source_point_id' => '12345',
+        'name' => 'Heat capacity (EB101)', 'unit' => 'kW'],
+]), 'heat capacity maps the local measurement ID rather than assuming it is the source ID');
 expect_same(['heat_power' => '700'], nibe_dashboard_default_role_mapping([
-    ['measurement_point_id' => '700', 'source_device_id' => 'another-device', 'source_point_id' => '598',
-        'name' => 'Heat capacity (EB101)'],
-]), 'heat capacity point 598 is mapped when its device ID differs');
+    ['measurement_point_id' => '700', 'source_device_id' => 'another-device', 'source_point_id' => '12345',
+        'name' => 'Heat capacity (EB101)', 'unit' => 'W'],
+]), 'heat capacity is mapped when its local ID and device differ');
+expect_same([], nibe_dashboard_default_role_mapping([
+    ['measurement_point_id' => '700', 'source_point_id' => '598', 'name' => 'Other power', 'unit' => 'kW'],
+    ['measurement_point_id' => '701', 'name' => 'Heat capacity (EB101)', 'unit' => 'kWh'],
+]), 'a source ID or incompatible heat capacity unit alone does not establish heat power');
+expect_same([], nibe_dashboard_default_role_mapping([
+    ['measurement_point_id' => '700', 'name' => 'Heat capacity (EB101)', 'unit' => 'kW'],
+    ['measurement_point_id' => '701', 'name' => 'Heat capacity (EB101)', 'unit' => 'W'],
+]), 'ambiguous heat capacity points require explicit configuration');
+expect_same('701', nibe_dashboard_role_mapping([
+    ['measurement_point_id' => '700', 'name' => 'Heat capacity (EB101)', 'unit' => 'kW'],
+    ['measurement_point_id' => '701', 'name' => 'Heat capacity (EB101)', 'unit' => 'W'],
+], '{"heat_power":"701"}')['heat_power'], 'explicit heat power mapping resolves ambiguity');
 
 $kpis = nibe_dashboard_kpis([
     'frequency' => [

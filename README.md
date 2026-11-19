@@ -120,10 +120,13 @@ Bij energie worden zowel de controles voor vermogen als voor de eventuele
 tellermeting getoond.
 
 Voor het bekende myUplink-apparaat worden elektrisch vermogen (bron-ID 32486
-of 13), warmtevermogen (bron-ID 598) en de ontdooistatus (bron-ID 44703)
-automatisch gekoppeld wanneer ze beschikbaar zijn. De
-prestatie-inzichten tonen de actieve koppelingen; deze kunnen worden aangepast
-via de rolconfiguratie hieronder.
+of 13) en de ontdooistatus (bron-ID 44703) automatisch gekoppeld wanneer ze
+beschikbaar zijn. Warmtevermogen wordt gekoppeld aan een uniek meetpunt met
+de naam `Heat capacity (EB101)` en een eenheid W of kW. Het eerder genoemde
+meetpunt-ID 598 is een lokaal ID, geen bron-ID. Bij meerdere passende
+meetpunten is een expliciete rolconfiguratie nodig. De prestatie-inzichten
+tonen de actieve koppelingen; deze kunnen worden aangepast via de
+rolconfiguratie hieronder.
 
 **Prestatie-inzichten** tonen COP alleen als gekoppelde warmte- en
 elektrische vermogens beschikbaar met eenheden W of kW. COP nu vereist dat
