@@ -14,6 +14,118 @@ function expect_same(mixed $expected, mixed $actual, string $case): void
     }
 }
 
+function complete_frequency_history(array $events, string $start, string $end): array
+{
+    usort($events, static fn (array $left, array $right): int => strcmp($left['source_timestamp'], $right['source_timestamp']));
+    $startTime = strtotime($start . ' UTC');
+    $endTime = strtotime($end . ' UTC');
+    $eventIndex = 0;
+    $value = '0';
+    $samples = [];
+    for ($time = $startTime; $time <= $endTime; $time += 300) {
+        while (isset($events[$eventIndex])
+            && strtotime($events[$eventIndex]['source_timestamp'] . ' UTC') <= $time) {
+            $value = $events[$eventIndex]['raw_value'];
+            $eventIndex++;
+        }
+        $samples[$time] = ['raw_value' => $value, 'source_timestamp' => gmdate('Y-m-d H:i:s', $time)];
+    }
+    foreach ($events as $event) {
+        $time = strtotime($event['source_timestamp'] . ' UTC');
+        if ($time >= $startTime && $time <= $endTime) {
+            $samples[$time] = $event;
+        }
+    }
+    ksort($samples);
+    return array_values($samples);
+}
+
+$now = new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC'));
+expect_same('live', nibe_dashboard_measurement_freshness('2026-01-02 11:50:00', $now)['status'],
+    'measurements within fifteen minutes are live');
+expect_same('stale', nibe_dashboard_measurement_freshness('2026-01-02 11:44:59', $now)['status'],
+    'measurements older than fifteen minutes are stale');
+expect_same('missing', nibe_dashboard_measurement_freshness(null, $now)['status'],
+    'missing timestamps do not appear live');
+$settingEntry = nibe_dashboard_setting_change_input([
+    'setting' => 'Graadminuten start compressor',
+    'new_value' => '-180',
+    'old_value' => '-100',
+    'changed_at' => '2026-11-22T20:15',
+    'note' => 'Lange runs',
+]);
+expect_same('2026-11-22 20:15:00', $settingEntry['changed_at'], 'manual setting timestamps are stored as UTC');
+expect_same(null, nibe_dashboard_setting_change_input([
+    'setting' => 'Stooklijn',
+    'new_value' => '6',
+    'old_value' => '',
+    'changed_at' => '2026-11-22T20:15',
+    'note' => '',
+])['old_value'], 'previous setting values are optional');
+try {
+    nibe_dashboard_setting_change_input([
+        'setting' => 'Invalid',
+        'new_value' => '1',
+        'changed_at' => '2026-02-30T20:15',
+    ]);
+    throw new RuntimeException('Invalid calendar dates must be rejected.');
+} catch (InvalidArgumentException) {
+}
+$cycleStart = strtotime('2026-01-02 10:00:00 UTC');
+$frequencyAt = static fn (int $offset, int $value): array => [
+    'time' => $cycleStart + $offset,
+    'value' => $value,
+];
+$detectedCycles = nibe_dashboard_compressor_cycles([
+    'frequency' => [
+        $frequencyAt(0, 0), $frequencyAt(300, 30), $frequencyAt(600, 35),
+        $frequencyAt(5000, 0), $frequencyAt(5300, 0), $frequencyAt(5600, 20),
+        $frequencyAt(5900, 25), $frequencyAt(6200, 0),
+    ],
+    'degree_minutes' => [
+        ['time' => $cycleStart + 5600, 'value' => -180],
+        ['time' => $cycleStart + 5900, 'value' => -120],
+        ['time' => $cycleStart + 6200, 'value' => -100],
+    ],
+    'supply' => [
+        ['time' => $cycleStart + 5600, 'value' => 40],
+        ['time' => $cycleStart + 5900, 'value' => 42],
+    ],
+    'return' => [
+        ['time' => $cycleStart + 5600, 'value' => 35],
+        ['time' => $cycleStart + 5900, 'value' => 36],
+    ],
+    'outdoor' => [['time' => $cycleStart + 5800, 'value' => 2]],
+], ['supply' => '°C', 'return' => 'C']);
+expect_same(1, count($detectedCycles), 'frequency gaps do not turn an active compressor into an inferred stop');
+expect_same(600, $detectedCycles[0]['duration_seconds'], 'only fully observed start/stop transitions form compressor cycles');
+expect_same(-180, $detectedCycles[0]['degree_minutes_start'], 'cycle details include degree minutes at the start');
+expect_same(25, $detectedCycles[0]['maximum_frequency'], 'cycle details include maximum compressor frequency');
+expect_same(5.5, $detectedCycles[0]['average_delta_t'], 'cycle details average only nearby compatible supply/return samples');
+$outdoorCop = nibe_dashboard_cop_by_outdoor_temperature([
+    'electric_power' => [
+        ['time' => $cycleStart, 'value' => 1],
+        ['time' => $cycleStart + 300, 'value' => 1],
+        ['time' => $cycleStart + 600, 'value' => 1],
+        ['time' => $cycleStart + 900, 'value' => 1],
+    ],
+    'heat_power' => [
+        ['time' => $cycleStart, 'value' => 4],
+        ['time' => $cycleStart + 300, 'value' => 4],
+        ['time' => $cycleStart + 600, 'value' => 4],
+        ['time' => $cycleStart + 900, 'value' => 4],
+    ],
+    'outdoor' => [
+        ['time' => $cycleStart, 'value' => -6],
+        ['time' => $cycleStart + 300, 'value' => -6],
+        ['time' => $cycleStart + 600, 'value' => -6],
+        ['time' => $cycleStart + 900, 'value' => -6],
+    ],
+], ['electric_power' => 'kW', 'heat_power' => 'kW']);
+expect_same(true, $outdoorCop['< -5 °C']['available'], 'outdoor COP requires a minimum number of matched points and coverage');
+expect_same(4.0, $outdoorCop['< -5 °C']['cop'], 'outdoor temperature bands calculate COP from measured power energy');
+expect_same(15, $outdoorCop['< -5 °C']['coverage_minutes'], 'outdoor temperature buckets expose actually integrated coverage');
+
 $trend = nibe_dashboard_sparkline([
     ['raw_value' => 'running', 'source_timestamp' => '2026-01-02 03:04:05', 'collected_at' => '2026-01-02 03:04:05'],
     ['raw_value' => '0', 'source_timestamp' => '2026-01-02 03:04:06', 'collected_at' => '2026-01-02 03:04:06'],
@@ -132,7 +244,7 @@ expect_same(['electric_power' => '101', 'heat_power' => '102'], array_intersect_
 ), 'configured roles only accept discovered measurement point IDs');
 
 $performance = nibe_dashboard_performance_metrics([
-    'frequency' => [
+    'frequency' => complete_frequency_history([
         ['raw_value' => '0', 'source_timestamp' => '2025-12-26 11:50:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-01 11:50:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
@@ -142,7 +254,7 @@ $performance = nibe_dashboard_performance_metrics([
         ['raw_value' => '55', 'source_timestamp' => '2026-01-02 11:40:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:50:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 12:00:00'],
-    ],
+    ], '2025-12-26 11:50:00', '2026-01-02 12:00:00'),
     'electric_power' => [['raw_value' => '500', 'source_timestamp' => '2026-01-02 11:50:00']],
     'heat_power' => [['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:50:00']],
     'electric_energy' => [
@@ -153,7 +265,7 @@ $performance = nibe_dashboard_performance_metrics([
         ['raw_value' => '30', 'source_timestamp' => '2026-01-01 23:00:00'],
         ['raw_value' => '36', 'source_timestamp' => '2026-01-02 11:00:00'],
     ],
-    'defrost' => [
+    'defrost' => complete_frequency_history([
         ['raw_value' => '0', 'source_timestamp' => '2025-12-03 11:00:00'],
         ['raw_value' => '0', 'source_timestamp' => '2025-12-26 11:00:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-01 11:00:00'],
@@ -163,7 +275,7 @@ $performance = nibe_dashboard_performance_metrics([
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:30:00'],
         ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:35:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:40:00'],
-    ],
+    ], '2025-12-26 11:00:00', '2026-01-02 12:00:00'),
     'supply' => [['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:58:00']],
     'return' => [['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:59:00']],
 ], [
@@ -179,6 +291,36 @@ expect_same(4.0, $performance['periods']['today']['cop'], 'daily COP is the rati
 expect_same('2026-01-02 11:50:00', $performance['cop_now_timestamp'], 'current COP exposes the measurement time');
 expect_same(0.04, round($performance['periods']['today']['electricity'], 2), 'electric energy integrates W samples at five minutes each');
 expect_same(0.17, round($performance['periods']['today']['heat'], 2), 'heat energy integrates kW samples at five minutes each');
+$counterPeriods = nibe_dashboard_performance_metrics([
+    'electric_energy' => [
+        ['raw_value' => '50', 'source_timestamp' => '2025-12-03 11:00:00'],
+        ['raw_value' => '90', 'source_timestamp' => '2025-12-26 11:00:00'],
+        ['raw_value' => '100', 'source_timestamp' => '2025-12-31 12:00:00'],
+        ['raw_value' => '110', 'source_timestamp' => '2026-01-01 11:00:00'],
+        ['raw_value' => '111', 'source_timestamp' => '2026-01-01 23:00:00'],
+        ['raw_value' => '112', 'source_timestamp' => '2026-01-02 11:00:00'],
+    ],
+    'heat_energy' => [
+        ['raw_value' => '100', 'source_timestamp' => '2025-12-03 11:00:00'],
+        ['raw_value' => '180', 'source_timestamp' => '2025-12-26 11:00:00'],
+        ['raw_value' => '200', 'source_timestamp' => '2025-12-31 12:00:00'],
+        ['raw_value' => '220', 'source_timestamp' => '2026-01-01 11:00:00'],
+        ['raw_value' => '222', 'source_timestamp' => '2026-01-01 23:00:00'],
+        ['raw_value' => '224', 'source_timestamp' => '2026-01-02 11:00:00'],
+    ],
+], ['electric_energy' => 'kWh', 'heat_energy' => 'kWh'],
+    new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
+expect_same(2.0, $counterPeriods['periods']['24h']['electricity'], '24-hour counter totals use their own boundary and baseline');
+expect_same(22.0, $counterPeriods['periods']['7d']['electricity'], 'seven-day counter totals use their own boundary and baseline');
+expect_same(62.0, $counterPeriods['periods']['30d']['electricity'], '30-day counter totals use their own boundary and baseline');
+expect_same(false, nibe_dashboard_performance_metrics([
+    'frequency' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
+        ['raw_value' => '20', 'source_timestamp' => '2026-01-02 11:05:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:10:00'],
+    ],
+], [], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')))
+    ['compressor_periods']['24h']['complete'], 'sparse frequency samples do not imply a complete 24-hour period');
 $pairedPower = nibe_dashboard_performance_metrics([
     'electric_power' => [
         ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:00:00'],
@@ -211,11 +353,20 @@ expect_same(2, $performance['compressor_starts'], 'performance metrics count com
 expect_same(2, $performance['compressor_starts_7d'], 'compressor starts are also counted over seven days');
 expect_same(1200, $performance['longest_run_seconds'], 'longest completed compressor run is reported');
 expect_same(600, $performance['shortest_run_seconds'], 'shortest completed compressor run is reported');
-expect_same(16.7, round($performance['frequency_distribution']['20-30'], 1), 'frequency band percentages use total observed time');
-expect_same(50, $performance['frequency_distribution']['0'], 'the zero-hertz band includes time when the compressor is stopped');
-expect_same(1800, $performance['frequency_seconds']['0'], 'frequency bands expose total time per band');
+expect_same(1800, $performance['compressor_periods']['24h']['total_runtime_seconds'], 'total compressor runtime sums completed cycles');
+expect_same(2, $performance['compressor_periods']['24h']['runs_under_30_minutes'], 'short-run counts use completed 30-minute threshold');
+expect_same(2, $performance['compressor_periods']['24h']['runs_under_60_minutes'], 'short-run counts use completed 60-minute threshold');
+expect_same(1800, $performance['compressor_periods']['24h']['average_interval_seconds'], 'average start interval uses starts within the selected period');
+expect_same(true, $performance['compressor_periods']['7d']['complete'], 'seven-day compressor summary requires sufficient observed coverage');
+expect_same(true, $performance['compressor_comparisons']['24h']['previous']['complete'],
+    'previous-period comparisons require measured coverage too');
+expect_same(2, $performance['compressor_comparisons']['24h']['changes']['starts'],
+    'compressor-start differences compare equal-length covered periods');
+expect_same(0.7, round($performance['frequency_distribution']['20-30'], 1), 'frequency band percentages use total observed time');
+expect_same(97.9, round($performance['frequency_distribution']['0'], 1), 'the zero-hertz band includes observed compressor stops');
+expect_same(84600, $performance['frequency_seconds']['0'], 'frequency bands expose total time per band');
 $allFrequencyBands = nibe_dashboard_performance_metrics([
-    'frequency' => [
+    'frequency' => complete_frequency_history([
         ['raw_value' => '0', 'source_timestamp' => '2026-01-01 11:55:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 10:55:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
@@ -227,7 +378,7 @@ $allFrequencyBands = nibe_dashboard_performance_metrics([
         ['raw_value' => '60', 'source_timestamp' => '2026-01-02 11:30:00'],
         ['raw_value' => '60', 'source_timestamp' => '2026-01-02 11:35:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:40:00'],
-    ],
+    ], '2026-01-01 11:55:00', '2026-01-02 12:00:00'),
 ], [], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
 foreach (['0', '1-20', '20-30', '30-40', '40-50', '50-60', '60+'] as $band) {
     expect_same(true, $allFrequencyBands['frequency_seconds'][$band] > 0, 'frequency band ' . $band . ' accumulates time');
@@ -235,6 +386,8 @@ foreach (['0', '1-20', '20-30', '30-40', '40-50', '50-60', '60+'] as $band) {
 expect_same(2, $performance['defrost_periods']['24h']['count'], 'defrost transitions are counted');
 expect_same(900, $performance['defrost_periods']['24h']['seconds'], 'defrost time is measured from observed samples');
 expect_same(450, $performance['defrost_periods']['24h']['average_duration_seconds'], 'average duration uses completed defrost cycles');
+expect_same(600, $performance['defrost_periods']['24h']['longest_duration_seconds'], 'longest defrost uses completed cycles only');
+expect_same(1500, $performance['defrost_periods']['24h']['since_last_seconds'], 'time since defrost uses the latest observed start');
 expect_same(900, $performance['defrost_periods']['24h']['average_interval_seconds'], 'average interval is exposed when at least two defrosts are observed');
 expect_same(null, nibe_dashboard_performance_metrics([
     'defrost' => [

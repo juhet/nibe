@@ -3,6 +3,71 @@
 require_once __DIR__ . '/app/config.php';
 require_once __DIR__ . '/app/dashboard.php';
 
+session_set_cookie_params([
+    'httponly' => true,
+    'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+    'samesite' => 'Lax',
+    'path' => '/',
+]);
+session_start();
+$settingsCsrfToken = $_SESSION['settings_csrf_token'] ??= bin2hex(random_bytes(32));
+$settingsMessage = $_SESSION['settings_log_message'] ?? null;
+unset($_SESSION['settings_log_message']);
+$settingsError = null;
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $providedToken = is_string($_POST['csrf_token'] ?? null) ? $_POST['csrf_token'] : '';
+    if (!hash_equals($settingsCsrfToken, $providedToken)) {
+        http_response_code(400);
+        $settingsError = 'De aanvraag kon niet worden gecontroleerd. Vernieuw de pagina en probeer opnieuw.';
+    } else {
+        try {
+            $database = nibe_database();
+            $action = $_POST['action'] ?? '';
+            if ($action === 'save') {
+                $entry = nibe_dashboard_setting_change_input($_POST);
+                $id = $_POST['id'] ?? '';
+                if ($id === '') {
+                    $statement = $database->prepare(
+                        'INSERT INTO nibe_setting_changes (changed_at, setting, old_value, new_value, note)
+                         VALUES (?, ?, ?, ?, ?)'
+                    );
+                    $statement->execute([
+                        $entry['changed_at'], $entry['setting'], $entry['old_value'],
+                        $entry['new_value'], $entry['note'],
+                    ]);
+                } elseif (is_string($id) && preg_match('/^[1-9][0-9]{0,19}$/D', $id)) {
+                    $statement = $database->prepare(
+                        'UPDATE nibe_setting_changes
+                         SET changed_at = ?, setting = ?, old_value = ?, new_value = ?, note = ?
+                         WHERE id = ?'
+                    );
+                    $statement->execute([
+                        $entry['changed_at'], $entry['setting'], $entry['old_value'],
+                        $entry['new_value'], $entry['note'], $id,
+                    ]);
+                } else {
+                    throw new InvalidArgumentException('De gekozen logboekregel is ongeldig.');
+                }
+                $_SESSION['settings_log_message'] = 'Instelling opgeslagen.';
+            } elseif ($action === 'delete'
+                && is_string($_POST['id'] ?? null)
+                && preg_match('/^[1-9][0-9]{0,19}$/D', $_POST['id'])) {
+                $statement = $database->prepare('DELETE FROM nibe_setting_changes WHERE id = ?');
+                $statement->execute([$_POST['id']]);
+                $_SESSION['settings_log_message'] = 'Instelling verwijderd.';
+            } else {
+                throw new InvalidArgumentException('De gekozen logboekactie is ongeldig.');
+            }
+            header('Location: index.php#settings-log', true, 303);
+            exit;
+        } catch (InvalidArgumentException $exception) {
+            $settingsError = $exception->getMessage();
+        } catch (Throwable $exception) {
+            $settingsError = 'De instelling kon niet worden opgeslagen. Controleer of de logboektabel is aangemaakt.';
+        }
+    }
+}
+
 function nibe_escape(?string $value): string
 {
     return htmlspecialchars($value ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -23,6 +88,7 @@ function nibe_debug(mixed $value, array $checks): string
 
 $measurements = [];
 $connections = [];
+$settingChanges = [];
 $defaultRoleMapping = [];
 $historyByRole = [];
 $performance = [];
@@ -127,6 +193,15 @@ try {
     );
     $connectionStatement->execute();
     $connections = $connectionStatement->fetchAll();
+
+    $settingStatement = $database->prepare(
+        'SELECT id, changed_at, setting, old_value, new_value, note
+         FROM nibe_setting_changes
+         ORDER BY changed_at DESC, id DESC
+         LIMIT 500'
+    );
+    $settingStatement->execute();
+    $settingChanges = $settingStatement->fetchAll();
 } catch (Throwable $exception) {
     $databaseReady = false;
 }
@@ -140,13 +215,22 @@ $performance += [
     'delta_t_now' => null,
     'compressor_starts' => null,
     'compressor_starts_7d' => null,
+    'compressor_periods' => [],
+    'compressor_comparisons' => [],
+    'cycles' => [],
     'average_run_seconds' => null,
     'longest_run_seconds' => null,
     'shortest_run_seconds' => null,
     'frequency_distribution' => [],
     'frequency_seconds' => [],
+    'cop_by_outdoor_temperature' => [],
+    'data_coverage' => [],
     'defrost_periods' => [],
 ];
+$selectedCyclePeriod = $_GET['cycle_period'] ?? '24h';
+if (!is_string($selectedCyclePeriod) || !in_array($selectedCyclePeriod, ['24h', '7d', '30d'], true)) {
+    $selectedCyclePeriod = '24h';
+}
 $selectedDefrostPeriod = $_GET['defrost_period'] ?? '24h';
 if (!is_string($selectedDefrostPeriod)
     || !in_array($selectedDefrostPeriod, ['24h', '7d', '30d'], true)) {
@@ -235,6 +319,8 @@ $chartPointIds = array_values(array_filter(array_map(
         .metric strong { display: block; font-size: 1.1rem; }
         .warning { padding: .65rem; color: #8a4b00; background: #fff3cd; border-radius: .4rem; }
         .bands { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: .5rem; }
+        .frequency-bar { display: flex; height: .9rem; margin: .75rem 0; overflow: hidden; border-radius: .45rem; background: #e5ebef; }
+        .frequency-bar span { height: 100%; }
         .connections { margin-top: 1.5rem; padding: 1rem; background: white; border-radius: .5rem; }
         .connections h2 { margin: 0 0 .5rem; font-size: 1rem; }
         .connections ul { margin: 0; padding-left: 1.25rem; }
@@ -247,6 +333,16 @@ $chartPointIds = array_values(array_filter(array_map(
         .legend { display: flex; gap: 1rem; flex-wrap: wrap; padding: 0; list-style: none; }
         .legend span { display: inline-block; width: 1em; height: .2em; vertical-align: middle; }
         .comparison { white-space: pre-line; }
+        .settings-table-wrap { overflow-x: auto; }
+        .settings-table { width: 100%; border-collapse: collapse; }
+        .settings-table th, .settings-table td { padding: .6rem; border-bottom: 1px solid #d8e0e6; text-align: left; vertical-align: top; }
+        .settings-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+        dialog { width: min(38rem, calc(100% - 2rem)); max-height: 90vh; overflow-y: auto; border: 0; border-radius: .6rem; box-shadow: 0 1rem 3rem #17212b55; }
+        dialog::backdrop { background: #17212b77; }
+        .settings-form { display: grid; gap: .75rem; }
+        .settings-form label { display: grid; gap: .25rem; }
+        .settings-form textarea { min-height: 5rem; resize: vertical; }
+        .settings-actions-row { display: flex; flex-wrap: wrap; gap: .5rem; }
         summary { cursor: pointer; font-weight: 650; }
     </style>
 </head>
@@ -293,11 +389,22 @@ $chartPointIds = array_values(array_filter(array_map(
                         <?php
                         $measurement = $measurementById[$defaultRoleMapping[$role]];
                         $freshnessTimestamp = $measurement['source_timestamp'] ?? $measurement['collected_at'];
-                        $isEmpty = $measurement['raw_value'] === null || $freshnessTimestamp === null;
-                        $isStale = !$isEmpty
-                            && new DateTimeImmutable($freshnessTimestamp, new DateTimeZone('UTC')) < $now->modify('-24 hours');
+                        $freshness = nibe_dashboard_measurement_freshness(
+                            $freshnessTimestamp,
+                            $now
+                        );
+                        $isEmpty = $measurement['raw_value'] === null || $freshness['status'] === 'missing';
+                        $isStale = !$isEmpty && $freshness['status'] === 'stale';
                         $statusClass = $isEmpty ? '' : ($isStale ? ' stale' : ' live');
-                        $statusLabel = $isEmpty ? 'Geen meting' : ($isStale ? 'Ouder dan 24 uur' : 'Live');
+                        $age = $freshness['age_seconds'];
+                        $ageLabel = $age === null ? '' : ($age < 0
+                            ? ' · ongeldige tijd'
+                            : ($age < 60
+                            ? ' · zojuist'
+                            : ($age < 3600
+                                ? ' · ' . floor($age / 60) . ' min geleden'
+                                : ' · ' . floor($age / 3600) . ' uur geleden')));
+                        $statusLabel = $isEmpty ? 'Ontbrekend' : ($isStale ? 'Verouderd' : 'Live') . $ageLabel;
                         ?>
                         <article class="important-item">
                             <h3><?= nibe_escape($label) ?></h3>
@@ -308,6 +415,9 @@ $chartPointIds = array_values(array_filter(array_map(
                                 <?php endif; ?>
                             </p>
                             <p class="status<?= $statusClass ?>"><?= nibe_escape($statusLabel) ?></p>
+                            <?php if (!$isEmpty && is_string($freshnessTimestamp)): ?>
+                                <small>Laatste meting: <time class="local-time" datetime="<?= nibe_escape($freshnessTimestamp) ?>"><?= nibe_escape($freshnessTimestamp) ?> UTC</time></small>
+                            <?php endif; ?>
                         </article>
                     <?php endif; ?>
                 <?php endforeach; ?>
@@ -324,7 +434,125 @@ $chartPointIds = array_values(array_filter(array_map(
                 <div class="kpi">Gemiddelde ΔT afgelopen 7 dagen<strong><?= $performance['periods']['7d']['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['7d']['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong><?= nibe_debug($performance['periods']['7d']['average_delta_t'], $performance['debug']['periods']['7d']['average_delta_t']) ?></div>
                 <div class="kpi">Warmtevermogen nu<strong><?= $currentHeatPower === null ? 'Niet beschikbaar' : nibe_escape($currentHeatPower) ?></strong><?= nibe_debug($currentHeatPower, $heatPowerDebug) ?></div>
             </div>
-            <p class="muted">ΔT nu vereist aanvoer en retour met dezelfde eenheid, maximaal 5 minuten tussen de brontijden en een recentste meting van maximaal 15 minuten oud. “Live” bij de meetpunten betekent minder dan 24 uur oud en is dus minder strikt.</p>
+            <h3>Compressorcycli — afgelopen <?= $selectedCyclePeriod === '24h' ? '24 uur' : ($selectedCyclePeriod === '7d' ? '7 dagen' : '30 dagen') ?></h3>
+            <form method="get" class="controls">
+                <label>Periode compressorcycli
+                    <select name="cycle_period">
+                        <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
+                            <option value="<?= nibe_escape($period) ?>"<?= $selectedCyclePeriod === $period ? ' selected' : '' ?>><?= nibe_escape($label) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <button type="submit">Toon periode</button>
+            </form>
+            <?php
+            $cycleSummary = $performance['compressor_periods'][$selectedCyclePeriod] ?? null;
+            $cycleCutoff = $now->getTimestamp() - match ($selectedCyclePeriod) {
+                '7d' => 7 * 86400,
+                '30d' => 30 * 86400,
+                default => 86400,
+            };
+            $periodCycles = array_values(array_filter(
+                $performance['cycles'],
+                static fn (array $cycle): bool => $cycle['start'] >= $cycleCutoff
+            ));
+            $periodCycles = array_slice(array_reverse($periodCycles), 0, 100);
+            ?>
+            <?php if ($cycleSummary !== null): ?>
+                <div class="metric-grid">
+                    <div class="metric">Compressorstarts<strong><?= $cycleSummary['starts'] === null ? 'Onvolledig' : nibe_escape((string) $cycleSummary['starts']) ?></strong></div>
+                    <div class="metric">Totale draaitijd<strong><?= $cycleSummary['total_runtime_seconds'] === null ? 'Onvolledig' : nibe_escape(number_format($cycleSummary['total_runtime_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong></div>
+                    <div class="metric">Gemiddelde runduur<strong><?= $cycleSummary['average_run_seconds'] === null ? 'Onvolledig' : nibe_escape(number_format($cycleSummary['average_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
+                    <div class="metric">Langste runduur<strong><?= $cycleSummary['longest_run_seconds'] === null ? 'Onvolledig' : nibe_escape(number_format($cycleSummary['longest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
+                    <div class="metric">Kortste runduur<strong><?= $cycleSummary['shortest_run_seconds'] === null ? 'Onvolledig' : nibe_escape(number_format($cycleSummary['shortest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
+                    <div class="metric">Runs korter dan 30 min<strong><?= $cycleSummary['runs_under_30_minutes'] === null ? 'Onvolledig' : nibe_escape((string) $cycleSummary['runs_under_30_minutes']) ?></strong></div>
+                    <div class="metric">Runs korter dan 60 min<strong><?= $cycleSummary['runs_under_60_minutes'] === null ? 'Onvolledig' : nibe_escape((string) $cycleSummary['runs_under_60_minutes']) ?></strong></div>
+                    <div class="metric">Gemiddelde tijd tussen starts<strong><?= $cycleSummary['average_interval_seconds'] === null ? 'Onvolledig' : nibe_escape(number_format($cycleSummary['average_interval_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong></div>
+                    <div class="metric">Gemiddelde ΔT<strong><?= $cycleSummary['average_delta_t'] === null ? 'Onvolledig' : nibe_escape(number_format($cycleSummary['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
+                    <div class="metric">Waargenomen datadekking<strong><?= nibe_escape(number_format($cycleSummary['coverage_percentage'], 1, ',', '') . '%') ?></strong></div>
+                </div>
+                <?php if (!$cycleSummary['complete']): ?>
+                    <p class="warning">Deze periode is onvolledig. Runs en starts worden alleen getoond wanneer de frequentiehistorie voldoende recent is; gaten langer dan 60 minuten worden niet als een compressorstop geïnterpreteerd.</p>
+                <?php endif; ?>
+            <?php endif; ?>
+            <?php if (isset($performance['compressor_comparisons'][$selectedCyclePeriod])): ?>
+                <?php
+                $cycleComparison = $performance['compressor_comparisons'][$selectedCyclePeriod];
+                $comparisonLabels = [
+                    'starts' => 'Compressorstarts',
+                    'total_runtime_seconds' => 'Totale draaitijd',
+                    'average_run_seconds' => 'Gemiddelde runduur',
+                    'runs_under_30_minutes' => 'Runs korter dan 30 min',
+                ];
+                $comparisonFormat = static function (?float $value, string $metric): string {
+                    if ($value === null) {
+                        return 'Onvolledig';
+                    }
+                    return match ($metric) {
+                        'total_runtime_seconds' => number_format($value / 3600, 1, ',', '') . ' uur',
+                        'average_run_seconds' => number_format($value / 60, 1, ',', '') . ' min',
+                        default => number_format($value, 1, ',', ''),
+                    };
+                };
+                ?>
+                <h4>Vergelijking met de vorige <?= $selectedCyclePeriod === '24h' ? '24 uur' : '7 dagen' ?></h4>
+                <p class="muted">Verschillen zijn rekenkundig (huidige periode min vorige periode), zonder beoordeling of minder/meerder starts beter is.</p>
+                <div class="settings-table-wrap">
+                    <table class="settings-table">
+                        <thead><tr><th>Meting</th><th>Huidige periode</th><th>Vorige periode</th><th>Verschil</th></tr></thead>
+                        <tbody>
+                            <?php foreach ($comparisonLabels as $metric => $label): ?>
+                                <?php
+                                $currentValue = $cycleSummary[$metric] ?? null;
+                                $previousValue = $cycleComparison['previous'][$metric] ?? null;
+                                $change = $cycleComparison['changes'][$metric] ?? null;
+                                ?>
+                                <tr>
+                                    <th scope="row"><?= nibe_escape($label) ?></th>
+                                    <td><?= nibe_escape($comparisonFormat($currentValue === null ? null : (float) $currentValue, $metric)) ?></td>
+                                    <td><?= nibe_escape($comparisonFormat($previousValue === null ? null : (float) $previousValue, $metric)) ?></td>
+                                    <td><?= nibe_escape($comparisonFormat($change === null ? null : (float) $change, $metric)) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="muted">Datadekking: huidige <?= nibe_escape(number_format($cycleSummary['coverage_percentage'], 1, ',', '') . '%') ?>; vorige <?= nibe_escape(number_format($cycleComparison['previous']['coverage_percentage'], 1, ',', '') . '%') ?>. Onvolledige perioden worden niet met getallen vergeleken.</p>
+            <?php endif; ?>
+            <h4>Recente individuele cycli</h4>
+            <?php if ($periodCycles === []): ?>
+                <p class="muted">Geen volledig waargenomen compressorcycli in deze periode.</p>
+            <?php else: ?>
+                <div class="settings-table-wrap">
+                    <table class="settings-table">
+                        <thead><tr><th>Start</th><th>Einde</th><th>Runduur</th><th>Details</th></tr></thead>
+                        <tbody>
+                            <?php foreach ($periodCycles as $cycle): ?>
+                                <tr>
+                                    <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['start'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['start'])) ?> UTC</time></td>
+                                    <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['end'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['end'])) ?> UTC</time></td>
+                                    <td><?= nibe_escape(number_format($cycle['duration_seconds'] / 60, 1, ',', '') . ' min') ?></td>
+                                    <td>
+                                        <details>
+                                            <summary>Meetwaarden</summary>
+                                            <ul>
+                                                <li>Graadminuten start/einde: <?= $cycle['degree_minutes_start'] === null ? 'Niet beschikbaar' : nibe_escape((string) $cycle['degree_minutes_start']) ?> / <?= $cycle['degree_minutes_end'] === null ? 'Niet beschikbaar' : nibe_escape((string) $cycle['degree_minutes_end']) ?></li>
+                                                <li>Graadminuten min/max: <?= $cycle['degree_minutes_min'] === null ? 'Niet beschikbaar' : nibe_escape((string) $cycle['degree_minutes_min']) ?> / <?= $cycle['degree_minutes_max'] === null ? 'Niet beschikbaar' : nibe_escape((string) $cycle['degree_minutes_max']) ?></li>
+                                                <li>Compressorfrequentie max/gemiddeld: <?= $cycle['maximum_frequency'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['maximum_frequency'], 1, ',', '') . ' Hz') ?> / <?= $cycle['average_frequency'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['average_frequency'], 1, ',', '') . ' Hz') ?></li>
+                                                <li>Gemiddelde aanvoer/retour: <?= $cycle['average_supply'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['average_supply'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?> / <?= $cycle['average_return'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['average_return'], 1, ',', '') . ' ' . ($roleUnits['return'] ?? '')) ?></li>
+                                                <li>Gemiddelde ΔT: <?= $cycle['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></li>
+                                                <li>Gemiddelde buitentemperatuur: <?= $cycle['average_outdoor'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['average_outdoor'], 1, ',', '') . ' ' . ($roleUnits['outdoor'] ?? '')) ?></li>
+                                            </ul>
+                                        </details>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php if (count($periodCycles) === 100): ?><p class="muted">De lijst toont maximaal de 100 recentste cycli.</p><?php endif; ?>
+            <?php endif; ?>
+            <p class="muted">ΔT nu vereist aanvoer en retour met dezelfde eenheid, maximaal 5 minuten tussen de brontijden en een recentste meting van maximaal 15 minuten oud. De live-status vereist een meting van maximaal 15 minuten oud.</p>
         </section>
         <section class="panel" aria-labelledby="performance-title">
             <h2 id="performance-title">Prestatie-inzichten</h2>
@@ -352,12 +580,73 @@ $chartPointIds = array_values(array_filter(array_map(
                     <div class="kpi">Warmte <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['heat'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods'][$period]['heat'] ?? null, $performance['debug']['periods'][$period]['heat']) ?></div>
                 <?php endforeach; ?>
             </div>
+            <details class="coverage">
+                <summary>Datadekking en werkelijke meetperiode</summary>
+                <ul>
+                    <?php foreach (['today' => 'vandaag (UTC)', '24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
+                        <?php foreach (['electricity' => 'Elektriciteit', 'heat' => 'Warmte'] as $metric => $metricLabel): ?>
+                            <?php $coverage = $performance['data_coverage'][$period][$metric] ?? null; ?>
+                            <li>
+                                <?= nibe_escape($metricLabel . ' ' . $label) ?>:
+                                <?= $coverage === null ? 'Geen gegevens' : nibe_escape((string) $coverage['count']) . ' meetpunten' ?>
+                                <?php if ($coverage !== null && $coverage['coverage_percentage'] !== null): ?>
+                                    · <?= nibe_escape(number_format($coverage['coverage_percentage'], 1, ',', '') . '% geschatte meetdekking, op basis van 5 minuten per opgeslagen vermogensmeting') ?>
+                                <?php endif; ?>
+                                <?php if ($coverage !== null && $coverage['first_timestamp'] !== null): ?>
+                                    · <time class="local-time" datetime="<?= nibe_escape($coverage['first_timestamp']) ?>"><?= nibe_escape($coverage['first_timestamp']) ?> UTC</time>
+                                    – <time class="local-time" datetime="<?= nibe_escape($coverage['last_timestamp']) ?>"><?= nibe_escape($coverage['last_timestamp']) ?> UTC</time>
+                                <?php else: ?> · geen metingen in periode<?php endif; ?>
+                            </li>
+                        <?php endforeach; ?>
+                    <?php endforeach; ?>
+                </ul>
+            </details>
+            <h3>COP naar buitentemperatuur — beschikbare historie (maximaal 30 dagen)</h3>
+            <div class="settings-table-wrap">
+                <table class="settings-table">
+                    <thead><tr><th>Buitentemperatuur</th><th>Metingen / dekking</th><th>Gem. buiten</th><th>Elektriciteit</th><th>Warmte</th><th>COP</th><th>Werkelijke meetperiode</th></tr></thead>
+                    <tbody>
+                        <?php foreach ($performance['cop_by_outdoor_temperature'] as $label => $bucket): ?>
+                            <tr>
+                                <th scope="row"><?= nibe_escape($label) ?></th>
+                                <td><?= nibe_escape((string) ($bucket['count'] ?? 0)) ?> metingen · <?= nibe_escape(number_format($bucket['coverage_minutes'] ?? 0, 0, ',', '')) ?> min gemeten</td>
+                                <td><?= ($bucket['average_outdoor'] ?? null) === null ? '—' : nibe_escape(number_format($bucket['average_outdoor'], 1, ',', '') . ' °C') ?></td>
+                                <td><?= !($bucket['available'] ?? false) ? 'Te weinig betrouwbare data' : nibe_escape(number_format($bucket['electricity'], 2, ',', '') . ' kWh') ?></td>
+                                <td><?= !($bucket['available'] ?? false) ? 'Te weinig betrouwbare data' : nibe_escape(number_format($bucket['heat'], 2, ',', '') . ' kWh') ?></td>
+                                <td><?= ($bucket['cop'] ?? null) === null ? 'Te weinig betrouwbare data' : nibe_escape(number_format($bucket['cop'], 2, ',', '')) ?></td>
+                                <td>
+                                    <?php if (($bucket['first_time'] ?? null) !== null): ?>
+                                        <time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['first_time'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['first_time'])) ?> UTC</time>
+                                        –
+                                        <time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['last_time'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['last_time'])) ?> UTC</time>
+                                    <?php else: ?>Geen gekoppelde metingen<?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <p class="muted">Alleen daadwerkelijk gemeten buitentemperatuur, elektrisch vermogen en warmtevermogen die maximaal 5 minuten uit elkaar liggen worden gekoppeld. Energie wordt uitsluitend over opeenvolgende meetparen met maximaal 15 minuten tussenruimte berekend; COP wordt pas getoond vanaf 3 meetparen en 10 minuten dekking. Ontbrekende intervallen worden niet aangevuld.</p>
             <h3>Compressorfrequentie — afgelopen 24 uur</h3>
             <div class="bands">
                 <?php foreach (['0' => '0 Hz', '1-20' => '1–20 Hz', '20-30' => '20–30 Hz', '30-40' => '30–40 Hz', '40-50' => '40–50 Hz', '50-60' => '50–60 Hz', '60+' => '60 Hz of hoger'] as $band => $label): ?>
                     <div class="metric"><?= nibe_escape($label) ?><strong><?= ($performance['frequency_distribution'][$band] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['frequency_distribution'][$band], 1, ',', '') . '% · ' . number_format(($performance['frequency_seconds'][$band] ?? 0) / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($performance['frequency_distribution'][$band] ?? null, $performance['debug']['frequency_distribution']) ?></div>
                 <?php endforeach; ?>
             </div>
+            <?php if (($performance['frequency_distribution']['0'] ?? null) !== null): ?>
+                <?php
+                $frequencyColors = ['#9aa8b2', '#84b9a1', '#5cae87', '#468fa1', '#3871a3', '#6657a5', '#884b83'];
+                $frequencyBandNames = ['0' => '0 Hz', '1-20' => '1–20 Hz', '20-30' => '20–30 Hz',
+                    '30-40' => '30–40 Hz', '40-50' => '40–50 Hz', '50-60' => '50–60 Hz', '60+' => '60 Hz of hoger'];
+                ?>
+                <div class="frequency-bar" role="img" aria-label="Compressorfrequentieverdeling afgelopen 24 uur">
+                    <?php foreach ($frequencyBandNames as $colorIndex => $label): ?>
+                        <?php $band = array_keys($frequencyBandNames)[$colorIndex]; ?>
+                        <?php $percentage = $performance['frequency_distribution'][$band] ?? 0; ?>
+                        <span style="width: <?= nibe_escape(number_format($percentage, 3, '.', '')) ?>%; background: <?= nibe_escape($frequencyColors[$colorIndex]) ?>" title="<?= nibe_escape($label . ': ' . number_format($percentage, 1, ',', '') . '%') ?>"></span>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
             <form method="get" class="controls">
                 <label>Periode ontdooien
                     <select name="defrost_period">
@@ -374,8 +663,12 @@ $chartPointIds = array_values(array_filter(array_map(
                 <div class="metric">Aantal<strong><?= ($defrost['count'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape((string) $defrost['count']) ?></strong><?= nibe_debug($defrost['count'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['count']) ?></div>
                 <div class="metric">Totale duur<strong><?= ($defrost['seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['seconds'] / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($defrost['seconds'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['seconds']) ?></div>
                 <div class="metric">Gemiddelde defrostduur<strong><?= ($defrost['average_duration_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_duration_seconds'] / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($defrost['average_duration_seconds'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['average_duration_seconds']) ?></div>
+                <div class="metric">Langste defrost<strong><?= ($defrost['longest_duration_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['longest_duration_seconds'] / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($defrost['longest_duration_seconds'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['longest_duration_seconds']) ?></div>
                 <div class="metric">Gemiddeld interval<strong><?= ($defrost['average_interval_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_interval_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong><?= nibe_debug($defrost['average_interval_seconds'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['average_interval_seconds']) ?></div>
+                <div class="metric">Tijd sinds laatste defrost<strong><?= ($defrost['since_last_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['since_last_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong><?= nibe_debug($defrost['since_last_seconds'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['since_last_seconds']) ?></div>
+                <div class="metric">Gemiddelde buitentemperatuur bij defrost<strong><?= ($defrost['average_outdoor'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_outdoor'], 1, ',', '') . ' ' . ($roleUnits['outdoor'] ?? '')) ?></strong><?= nibe_debug($defrost['average_outdoor'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['average_outdoor']) ?></div>
                 <div class="metric">Tijd tijdens draaien<strong><?= ($defrost['percent'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['percent'], 1, ',', '') . '%') ?></strong><?= nibe_debug($defrost['percent'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['percent']) ?></div>
+                <div class="metric">Datadekking<strong><?= nibe_escape(number_format($defrost['coverage_percentage'] ?? 0, 1, ',', '') . '%') ?></strong></div>
             </div>
             <p class="muted">COP vereist elektrisch vermogen en warmtevermogen (W of kW) en een positief elektrisch vermogen. COP over een periode is de verhouding van de geïntegreerde warmte- en elektriciteitsenergie, met 5 minuten per opgeslagen meting. Voor COP nu moeten beide metingen maximaal 15 minuten oud zijn. Ontbrekende metingen worden niet aangevuld. Warmtevermogen kan niet uit temperaturen alleen worden bepaald.</p>
             <p class="muted">Energie wordt uit vermogensmetingen geïntegreerd met vijf minuten per opgeslagen meting. Als vermogens niet bruikbaar zijn, vereisen cumulatieve tellers in kWh of Wh een meting binnen 6 uur vóór de periode en een eindmeting van maximaal 6 uur oud; uurwaarden en jaarwaarden die periodiek worden gereset zijn niet geschikt. Ontdooicijfers vereisen een gekoppelde status, voldoende recente historie en een meting binnen 6 uur vóór de periode; het gemiddelde interval vereist minstens twee waargenomen starts.</p>
@@ -394,7 +687,7 @@ $chartPointIds = array_values(array_filter(array_map(
             <div class="controls">
                 <label>Periode
                     <select id="chart-period">
-                        <option value="4h">4 uur</option>
+                        <option value="6h">6 uur</option>
                         <option value="1" selected>24 uur</option>
                         <option value="7">7 dagen</option>
                         <option value="30">30 dagen</option>
@@ -417,9 +710,17 @@ $chartPointIds = array_values(array_filter(array_map(
             <?php foreach ($measurements as $measurement): ?>
                 <?php
                 $freshnessTimestamp = $measurement['source_timestamp'] ?? $measurement['collected_at'];
-                $isEmpty = $measurement['raw_value'] === null || $freshnessTimestamp === null;
-                $isStale = !$isEmpty
-                    && new DateTimeImmutable($freshnessTimestamp, new DateTimeZone('UTC')) < $now->modify('-24 hours');
+                $freshness = nibe_dashboard_measurement_freshness($freshnessTimestamp, $now);
+                $isEmpty = $measurement['raw_value'] === null || $freshness['status'] === 'missing';
+                $isStale = !$isEmpty && $freshness['status'] === 'stale';
+                $age = $freshness['age_seconds'];
+                $ageLabel = $age === null ? '' : ($age < 0
+                    ? ' · ongeldige tijd'
+                    : ($age < 60
+                        ? ' · zojuist'
+                        : ($age < 3600
+                            ? ' · ' . floor($age / 60) . ' min geleden'
+                            : ' · ' . floor($age / 3600) . ' uur geleden')));
                 ?>
                 <article class="measurement">
                     <h2><?= nibe_escape($measurement['name']) ?></h2>
@@ -431,13 +732,79 @@ $chartPointIds = array_values(array_filter(array_map(
                         <?php endif; ?>
                     </p>
                     <p class="status<?= $isEmpty ? '' : ($isStale ? ' stale' : ' live') ?>">
-                        <?= $isEmpty ? 'Geen meting' : ($isStale ? 'Ouder dan 24 uur' : 'Live') ?>
+                        <?= $isEmpty ? 'Ontbrekend' : ($isStale ? 'Verouderd' : 'Live') . $ageLabel ?>
                     </p>
+                    <?php if (!$isEmpty && is_string($freshnessTimestamp)): ?>
+                        <small>Laatste meting: <time class="local-time" datetime="<?= nibe_escape($freshnessTimestamp) ?>"><?= nibe_escape($freshnessTimestamp) ?> UTC</time></small>
+                    <?php endif; ?>
                 </article>
             <?php endforeach; ?>
         </section>
         </details>
     <?php endif; ?>
+    <section class="panel" id="settings-log" aria-labelledby="settings-title">
+        <h2 id="settings-title">Instellingenlogboek — handmatig</h2>
+        <p class="muted">Leg zelf wijzigingen vast. Deze notities worden alleen lokaal in het dashboard opgeslagen; er worden nooit instellingen naar de warmtepomp geschreven.</p>
+        <?php if ($settingsMessage !== null): ?><p role="status"><?= nibe_escape((string) $settingsMessage) ?></p><?php endif; ?>
+        <?php if ($settingsError !== null): ?><p class="warning" role="alert"><?= nibe_escape($settingsError) ?></p><?php endif; ?>
+        <?php if (!$databaseReady): ?>
+            <p class="warning">Het instellingenlogboek is niet beschikbaar. Controleer of de database en tabel nibe_setting_changes zijn ingesteld.</p>
+        <?php else: ?>
+            <button type="button" id="setting-add">+ Instelling vastleggen</button>
+            <?php if ($settingChanges === []): ?>
+                <p class="muted">Nog geen instellingenwijzigingen vastgelegd.</p>
+            <?php else: ?>
+                <div class="settings-table-wrap">
+                    <table class="settings-table">
+                        <thead><tr><th>Datum/tijd (UTC)</th><th>Instelling</th><th>Wijziging</th><th>Opmerking</th><th>Acties</th></tr></thead>
+                        <tbody>
+                            <?php foreach ($settingChanges as $entry): ?>
+                                <?php $entryDate = substr((string) $entry['changed_at'], 0, 16); ?>
+                                <tr>
+                                    <td><time class="local-time" datetime="<?= nibe_escape($entry['changed_at']) ?>"><?= nibe_escape($entry['changed_at']) ?> UTC</time></td>
+                                    <td><?= nibe_escape($entry['setting']) ?></td>
+                                    <td><?= $entry['old_value'] === null ? '' : nibe_escape($entry['old_value']) . ' → ' ?><?= nibe_escape($entry['new_value']) ?></td>
+                                    <td><?= nl2br(nibe_escape($entry['note'])) ?></td>
+                                    <td><div class="settings-actions">
+                                        <button type="button" class="setting-edit"
+                                            data-id="<?= nibe_escape((string) $entry['id']) ?>"
+                                            data-setting="<?= nibe_escape($entry['setting']) ?>"
+                                            data-old-value="<?= nibe_escape($entry['old_value']) ?>"
+                                            data-new-value="<?= nibe_escape($entry['new_value']) ?>"
+                                            data-note="<?= nibe_escape($entry['note']) ?>"
+                                            data-changed-at="<?= nibe_escape(str_replace(' ', 'T', $entryDate)) ?>">Bewerken</button>
+                                        <form method="post" class="setting-delete">
+                                            <input type="hidden" name="csrf_token" value="<?= nibe_escape($settingsCsrfToken) ?>">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="id" value="<?= nibe_escape((string) $entry['id']) ?>">
+                                            <button type="submit">Verwijderen</button>
+                                        </form>
+                                    </div></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+            <dialog id="setting-dialog" aria-labelledby="setting-dialog-title">
+                <form method="post" class="settings-form" id="setting-form">
+                    <h3 id="setting-dialog-title">Instelling vastleggen</h3>
+                    <input type="hidden" name="csrf_token" value="<?= nibe_escape($settingsCsrfToken) ?>">
+                    <input type="hidden" name="action" value="save">
+                    <input type="hidden" name="id" value="">
+                    <label>Instelling<input name="setting" maxlength="191" required></label>
+                    <label>Nieuwe waarde<input name="new_value" maxlength="1000" required></label>
+                    <label>Vorige waarde (optioneel)<input name="old_value" maxlength="1000"></label>
+                    <label>Datum en tijd (UTC)<input type="datetime-local" name="changed_at" value="<?= nibe_escape(gmdate('Y-m-d\TH:i')) ?>" required></label>
+                    <label>Opmerking (optioneel)<textarea name="note" maxlength="5000"></textarea></label>
+                    <div class="settings-actions-row">
+                        <button type="submit">Opslaan</button>
+                        <button type="button" id="setting-cancel">Annuleren</button>
+                    </div>
+                </form>
+            </dialog>
+        <?php endif; ?>
+    </section>
     <script src="dashboard.js" defer></script>
 </body>
 </html>

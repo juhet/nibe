@@ -3,7 +3,8 @@
 Een alleen-lezen dashboard uit [DESIGN.txt](DESIGN.txt). De pagina toont
 verbindingsstatus, de vaste belangrijkste meetpunten en kerncijfers over de
 compressor en temperatuurverschillen, plus een uitklapbaar overzicht van alle
-ontdekte meetpunten met hun laatst opgeslagen waarden.
+ontdekte meetpunten met hun laatst opgeslagen waarden. Handmatige
+instellingenwijzigingen kunnen lokaal in een apart logboek worden bijgehouden.
 De afzonderlijke gegevensverzamelaar ontdekt systemen en meetpunten via
 myUplink en slaat hun actuele waarden op. De pagina start zelf geen verzameling
 en vult ontbrekende metingen niet aan met verzonnen waarden.
@@ -19,10 +20,18 @@ en vult ontbrekende metingen niet aan met verzonnen waarden.
 
 Maak een database en een databasegebruiker aan bij de hostingprovider.
 Importeer daarna [`database/schema.sql`](database/schema.sql) in die database,
-bijvoorbeeld via phpMyAdmin. Het schema maakt vijf tabellen aan: `nibe_connections`,
+bijvoorbeeld via phpMyAdmin. Het schema maakt zes tabellen aan: `nibe_connections`,
 `nibe_devices`, `nibe_measurement_points`, `nibe_observations` en
-`nibe_collection_runs`. Iedere tabel gebruikt zo dezelfde herkenbare `nibe_`
-prefix. Importeer het schema één keer in een lege database.
+`nibe_collection_runs` en `nibe_setting_changes`. Iedere tabel gebruikt zo
+dezelfde herkenbare `nibe_` prefix. Importeer het schema één keer in een lege
+database. Bij een bestaande installatie voer je ook
+[`database/settings_log.sql`](database/settings_log.sql) uit om alleen de
+nieuwe logboektabel aan te maken.
+
+Het instellingenlogboek is handmatig: gebruik **+ Instelling vastleggen** om
+een wijziging toe te voegen, of bewerk/verwijder een bestaande regel. Datums
+worden ingevoerd en opgeslagen in UTC. Deze gegevens worden alleen lokaal in
+MySQL bewaard; de dashboardpagina schrijft nooit naar de warmtepomp.
 
 ## Gegevens en geheimen configureren
 

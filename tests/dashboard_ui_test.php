@@ -82,6 +82,13 @@ try {
     if (!str_contains($html, 'kw&lt;script&gt;') || str_contains($html, 'kw<script>')) {
         throw new RuntimeException('Debug output must escape measurement units.');
     }
+    if (!str_contains($html, '+ Instelling vastleggen')
+        || !str_contains($html, 'id="setting-dialog"')
+        || !str_contains($html, 'name="old_value"')
+        || !str_contains($html, 'name="new_value"')
+        || !str_contains($html, 'name="changed_at"')) {
+        throw new RuntimeException('The manual settings log must expose its add dialog and editable fields.');
+    }
     if (!preg_match('/ΔT nu<strong>Niet beschikbaar<\/strong>(?:(?!<\/div>).)*✗ Tijdsverschil: 305 seconden/s', $html)
         || !preg_match('/COP nu<strong>Niet beschikbaar<\/strong>(?:(?!<\/div>).)*✗ Warmtevermogen: meting 90[1-9] seconden oud/s', $html)
         || !preg_match('/Warmtevermogen nu<strong>Niet beschikbaar<\/strong>(?:(?!<\/div>).)*✗ Meting is 90[1-9] seconden oud/s', $html)) {
