@@ -542,6 +542,8 @@ $chartPointIds = array_values(array_filter(array_map(
                                                 <li>Gemiddelde aanvoer/retour: <?= $cycle['average_supply'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['average_supply'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?> / <?= $cycle['average_return'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['average_return'], 1, ',', '') . ' ' . ($roleUnits['return'] ?? '')) ?></li>
                                                 <li>Gemiddelde ΔT: <?= $cycle['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></li>
                                                 <li>Gemiddelde buitentemperatuur: <?= $cycle['average_outdoor'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['average_outdoor'], 1, ',', '') . ' ' . ($roleUnits['outdoor'] ?? '')) ?></li>
+                                                <li>Elektriciteitsverbruik: <?= $cycle['electricity_kwh'] === null ? 'Niet betrouwbaar beschikbaar' : nibe_escape(number_format($cycle['electricity_kwh'], 3, ',', '') . ' kWh') ?></li>
+                                                <li>Warmteproductie: <?= $cycle['heat_kwh'] === null ? 'Niet betrouwbaar beschikbaar' : nibe_escape(number_format($cycle['heat_kwh'], 3, ',', '') . ' kWh') ?></li>
                                             </ul>
                                         </details>
                                     </td>

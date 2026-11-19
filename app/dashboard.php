@@ -204,6 +204,36 @@ function nibe_dashboard_compressor_cycles(array $samples, array $units): array
             if (in_array($normalizedReturn, ['c', 'celsius', '°c'], true)) {
                 $normalizedReturn = '°c';
             }
+            $cycleEnergy = static function (string $role) use ($samples, $units, $start, $end): ?float {
+                $unit = strtolower(trim((string) ($units[$role] ?? '')));
+                $toKw = match ($unit) {
+                    'w', 'watts' => static fn (float $value): float => $value / 1000,
+                    'kw', 'kilowatts' => static fn (float $value): float => $value,
+                    default => null,
+                };
+                if ($toKw === null) {
+                    return null;
+                }
+                $power = array_values(array_filter(
+                    $samples[$role] ?? [],
+                    static fn (array $value): bool => $value['time'] >= $start && $value['time'] <= $end
+                ));
+                if (count($power) < 2) {
+                    return null;
+                }
+                $energy = 0.0;
+                $coveredSeconds = 0;
+                for ($powerIndex = 0; $powerIndex < count($power) - 1; $powerIndex++) {
+                    $seconds = $power[$powerIndex + 1]['time'] - $power[$powerIndex]['time'];
+                    if ($seconds <= 0 || $seconds > 900 || $power[$powerIndex]['value'] < 0) {
+                        continue;
+                    }
+                    $coveredSeconds += $seconds;
+                    $energy += $toKw($power[$powerIndex]['value']) * $seconds / 3600;
+                }
+
+                return $coveredSeconds >= ($end - $start) * 0.7 ? $energy : null;
+            };
 
             $cycles[] = [
                 'start' => $start,
@@ -221,6 +251,8 @@ function nibe_dashboard_compressor_cycles(array $samples, array $units): array
                     ? array_sum($deltaT) / count($deltaT)
                     : null,
                 'average_outdoor' => $temperatureAverages['outdoor'],
+                'electricity_kwh' => $cycleEnergy('electric_power'),
+                'heat_kwh' => $cycleEnergy('heat_power'),
             ];
             $cycleIndex = array_key_last($cycles);
             foreach (['degree_minutes_start' => $start, 'degree_minutes_end' => $end] as $key => $time) {
@@ -266,14 +298,23 @@ function nibe_dashboard_cop_by_outdoor_temperature(array $samples, array $units)
     $matched = [];
     $usedHeat = [];
     $usedOutdoor = [];
-    foreach ($samples['electric_power'] ?? [] as $electricIndex => $electric) {
+    $heatPointer = 0;
+    $outdoorPointer = 0;
+    foreach ($samples['electric_power'] ?? [] as $electric) {
         $electricKw = $toKw($electric['value'], $electricUnit);
         if ($electricKw === null || $electricKw <= 0) {
             continue;
         }
+        while (isset($samples['heat_power'][$heatPointer])
+            && ($samples['heat_power'][$heatPointer]['time'] < $electric['time'] - 300
+                || isset($usedHeat[$heatPointer]))) {
+            $heatPointer++;
+        }
         $nearestHeat = null;
         $heatDistance = 301;
-        foreach ($samples['heat_power'] ?? [] as $heatIndex => $heat) {
+        for ($heatIndex = $heatPointer; isset($samples['heat_power'][$heatIndex])
+            && $samples['heat_power'][$heatIndex]['time'] <= $electric['time'] + 300; $heatIndex++) {
+            $heat = $samples['heat_power'][$heatIndex];
             $distance = abs($electric['time'] - $heat['time']);
             if (!isset($usedHeat[$heatIndex]) && $distance < $heatDistance) {
                 $nearestHeat = $heatIndex;
@@ -283,9 +324,16 @@ function nibe_dashboard_cop_by_outdoor_temperature(array $samples, array $units)
         if ($nearestHeat === null || $heatDistance > 300) {
             continue;
         }
+        while (isset($samples['outdoor'][$outdoorPointer])
+            && ($samples['outdoor'][$outdoorPointer]['time'] < $electric['time'] - 300
+                || isset($usedOutdoor[$outdoorPointer]))) {
+            $outdoorPointer++;
+        }
         $nearestOutdoor = null;
         $outdoorDistance = 301;
-        foreach ($samples['outdoor'] ?? [] as $outdoorIndex => $outdoor) {
+        for ($outdoorIndex = $outdoorPointer; isset($samples['outdoor'][$outdoorIndex])
+            && $samples['outdoor'][$outdoorIndex]['time'] <= $electric['time'] + 300; $outdoorIndex++) {
+            $outdoor = $samples['outdoor'][$outdoorIndex];
             $distance = abs($electric['time'] - $outdoor['time']);
             if (!isset($usedOutdoor[$outdoorIndex]) && $distance < $outdoorDistance) {
                 $nearestOutdoor = $outdoorIndex;
