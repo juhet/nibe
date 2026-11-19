@@ -13,7 +13,6 @@ function nibe_dashboard_default_role_mapping(array $measurements): array
         'supply' => '44058',
         'return' => '44055',
         'electric_power' => ['32486', '13'],
-        'heat_power' => '598',
         'defrost' => '44703',
     ];
     $mapping = [];
@@ -30,13 +29,13 @@ function nibe_dashboard_default_role_mapping(array $measurements): array
         }
     }
 
-    if (!isset($mapping['heat_power'])) {
-        foreach ($measurements as $measurement) {
-            if ((string) ($measurement['source_point_id'] ?? '') === '598') {
-                $mapping['heat_power'] = (string) $measurement['measurement_point_id'];
-                break;
-            }
-        }
+    $heatPowerCandidates = array_values(array_filter($measurements, static function (array $measurement): bool {
+        return strcasecmp(trim((string) ($measurement['name'] ?? '')), 'Heat capacity (EB101)') === 0
+            && in_array(strtolower(trim((string) ($measurement['unit'] ?? ''))), ['w', 'watts', 'kw', 'kilowatts'], true)
+            && isset($measurement['measurement_point_id']);
+    }));
+    if (count($heatPowerCandidates) === 1) {
+        $mapping['heat_power'] = (string) $heatPowerCandidates[0]['measurement_point_id'];
     }
 
     return $mapping;
