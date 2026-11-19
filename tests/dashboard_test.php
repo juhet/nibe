@@ -56,10 +56,10 @@ expect_same('Aanvoer', nibe_dashboard_point_name([
     'source_point_id' => '44058',
     'name' => 'Supply line (EB101-BT12)',
 ]), 'known points use friendly names');
-expect_same('Aanvoer', nibe_dashboard_point_name([
+expect_same('Supply line (EB101-BT12)', nibe_dashboard_point_name([
     'source_device_id' => 'another-device',
     'source_point_id' => '44058',
-    'name' => 'Aanvoer',
+    'name' => 'Supply line (EB101-BT12)',
 ]), 'other devices preserve their source point name');
 
 $request = nibe_dashboard_history_request(['points' => '1,22', 'start' => '100', 'end' => '200']);

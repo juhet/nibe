@@ -8,7 +8,7 @@
     const endInput = document.getElementById('chart-end');
     const message = document.getElementById('chart-message');
     const charts = document.getElementById('charts');
-    const colors = ['#087f8c', '#c14953', '#7156a5', '#b36b00', '#2865a3', '#47813c'];
+    const colors = ['#087f8c', '#c14953', '#7156a5', '#b36b00', '#2865a3', '#47813c', '#8a4c7d', '#527b8b'];
     let requestNumber = 0;
 
     function utcTime(value) {
@@ -68,6 +68,27 @@
         return node;
     }
 
+    function tickInterval(range, unit) {
+        if (unit === '°C') return 10;
+        const target = range / 4;
+        const magnitude = 10 ** Math.floor(Math.log10(target));
+        const normalized = target / magnitude;
+        return (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+    }
+
+    function valueAt(item, time) {
+        const values = item.values;
+        let next = values.findIndex(point => point.time >= time);
+        if (next !== -1 && Math.abs(values[next].time - time) < 1) {
+            return {value: values[next].value, raw: values[next].raw, estimated: false};
+        }
+        if (next <= 0 || next === -1) return null;
+        const before = values[next - 1], after = values[next];
+        if (after.time - before.time > 86400000) return null;
+        const fraction = (time - before.time) / (after.time - before.time);
+        return {value: before.value + fraction * (after.value - before.value), estimated: true};
+    }
+
     function drawGroup(unit, series, start, end) {
         const section = document.createElement('section');
         const heading = document.createElement('h3');
@@ -77,18 +98,25 @@
         legend.className = 'legend';
         const detail = document.createElement('p');
         detail.className = 'muted';
-        detail.textContent = 'Wijs een punt aan of selecteer het met Tab voor details.';
+        detail.textContent = 'Beweeg over de grafiek of selecteer een punt met Tab om de meetpunten op hetzelfde tijdstip te vergelijken.';
         const svg = element('svg', {viewBox: '0 0 1000 340', class: 'chart', role: 'img', 'aria-label': 'Waarnemingen, ' + (unit || 'zonder eenheid')});
         const all = series.flatMap(item => item.values.map(point => point.value));
         if (!all.length) return null;
         let min = Math.min(...all), max = Math.max(...all);
-        if (min === max) { min -= 1; max += 1; }
+        const interval = tickInterval(max - min || Math.abs(max) || 1, unit);
+        let axisMin = Math.floor(min / interval) * interval;
+        let axisMax = Math.ceil(max / interval) * interval;
+        if (axisMin === axisMax) {
+            axisMin -= interval;
+            axisMax += interval;
+        }
         const x = t => 75 + (t - start) / (end - start) * 900;
-        const y = v => 285 - (v - min) / (max - min) * 250;
-        for (let i = 0; i <= 4; i++) {
-            const yy = 35 + i * 62.5;
+        const y = v => 285 - (v - axisMin) / (axisMax - axisMin) * 250;
+        const numberFormat = new Intl.NumberFormat('nl-NL', {maximumFractionDigits: 2});
+        for (let value = axisMin, i = 0; value <= axisMax + interval / 1000 && i < 10; value += interval, i++) {
+            const yy = y(value);
             svg.append(element('line', {x1: 75, y1: yy, x2: 975, y2: yy, stroke: '#d8e0e6'}));
-            svg.append(element('text', {x: 68, y: yy + 4, 'text-anchor': 'end'}, (max - i * (max - min) / 4).toPrecision(4)));
+            svg.append(element('text', {x: 68, y: yy + 4, 'text-anchor': 'end'}, numberFormat.format(value)));
         }
         for (let i = 0; i <= 4; i++) {
             const xx = 75 + i * 225;
@@ -103,8 +131,9 @@
             const label = document.createElement('label');
             const connect = document.createElement('input');
             connect.type = 'checkbox';
-            connect.checked = ['°C', 'Hz'].includes(unit);
-            label.append(connect, document.createTextNode(' Lijn: ' + item.label));
+            connect.checked = true;
+            item.visible = true;
+            label.append(connect, document.createTextNode(' ' + item.label));
             li.append(swatch, label);
             legend.append(li);
             let path = '', previous = null;
@@ -113,20 +142,65 @@
                     + x(point.time) + ' ' + y(point.value);
                 previous = point.time;
             }
-            const line = element('path', {d: path, fill: 'none', stroke: item.color, 'stroke-width': 2});
-            line.style.display = connect.checked ? '' : 'none';
-            connect.addEventListener('change', () => { line.style.display = connect.checked ? '' : 'none'; });
-            svg.append(line);
+            const seriesGroup = element('g');
+            const line = element('path', {d: path, fill: 'none', stroke: item.color, 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round'});
+            seriesGroup.append(line);
             for (const point of item.values) {
                 const description = item.label + ' — ' + point.raw + (unit ? ' ' + unit : '')
                     + ' — ' + point.timeLabel + ' (UTC): ' + point.timestamp;
-                const circle = element('circle', {cx: x(point.time), cy: y(point.value), r: 4, fill: item.color, tabindex: '0', 'aria-label': description});
+                const circle = element('circle', {cx: x(point.time), cy: y(point.value), r: 2.5, fill: item.color, tabindex: '0', 'aria-label': description});
                 circle.append(element('title', {}, description));
-                circle.addEventListener('focus', () => { detail.textContent = description; });
-                circle.addEventListener('mouseenter', () => { detail.textContent = description; });
-                svg.append(circle);
+                circle.addEventListener('focus', () => showComparison(point.time));
+                seriesGroup.append(circle);
             }
+            item.comparisonMarker = element('circle', {r: 4, fill: item.color, stroke: '#fff', 'stroke-width': 1, 'pointer-events': 'none', visibility: 'hidden'});
+            seriesGroup.append(item.comparisonMarker);
+            connect.addEventListener('change', () => {
+                item.visible = connect.checked;
+                seriesGroup.style.display = item.visible ? '' : 'none';
+            });
+            svg.append(seriesGroup);
         }
+        const comparisonLine = element('line', {y1: 35, y2: 285, stroke: '#526170', 'stroke-dasharray': '4 4', 'pointer-events': 'none', visibility: 'hidden'});
+        svg.append(comparisonLine);
+        function showComparison(time) {
+            comparisonLine.setAttribute('x1', x(time));
+            comparisonLine.setAttribute('x2', x(time));
+            comparisonLine.setAttribute('visibility', 'visible');
+            const descriptions = [new Date(time).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'];
+            for (const item of series) {
+                if (!item.visible) {
+                    item.comparisonMarker.setAttribute('visibility', 'hidden');
+                    continue;
+                }
+                const value = valueAt(item, time);
+                if (value === null) {
+                    item.comparisonMarker.setAttribute('visibility', 'hidden');
+                    descriptions.push(item.label + ': geen meting');
+                    continue;
+                }
+                item.comparisonMarker.setAttribute('cx', x(time));
+                item.comparisonMarker.setAttribute('cy', y(value.value));
+                item.comparisonMarker.setAttribute('visibility', 'visible');
+                descriptions.push(item.label + ': ' + (value.estimated ? numberFormat.format(value.value) : value.raw)
+                    + (unit ? ' ' + unit : '') + (value.estimated ? ' (geschat)' : ' (gemeten)'));
+            }
+            detail.textContent = descriptions.join(' · ');
+        }
+        const hitArea = element('rect', {x: 75, y: 35, width: 900, height: 250, fill: 'transparent', 'pointer-events': 'all', 'aria-label': 'Vergelijk meetpunten op dit tijdstip'});
+        hitArea.style.cursor = 'crosshair';
+        hitArea.addEventListener('pointermove', event => {
+            const point = svg.createSVGPoint();
+            point.x = event.clientX;
+            point.y = event.clientY;
+            const chartX = point.matrixTransform(svg.getScreenCTM().inverse()).x;
+            showComparison(start + (chartX - 75) / 900 * (end - start));
+        });
+        hitArea.addEventListener('pointerleave', () => {
+            comparisonLine.setAttribute('visibility', 'hidden');
+            for (const item of series) item.comparisonMarker.setAttribute('visibility', 'hidden');
+        });
+        svg.append(hitArea);
         section.append(legend, detail, svg);
         return section;
     }
@@ -168,16 +242,17 @@
                 if (!values.length) missing++;
                 truncated ||= item.truncated;
                 if (!groups.has(unit)) groups.set(unit, []);
-                groups.get(unit).push({values, color: colors[index], label: item.point.name + ' — ' + item.point.device_name + ' [' + item.point.source_point_id + ']'});
+                values.sort((left, right) => left.time - right.time);
+                groups.get(unit).push({values, color: colors[index], label: item.point.display_name || item.point.name});
             });
             for (const [unit, group] of groups) {
                 const chart = drawGroup(unit, group, startSeconds * 1000, endSeconds * 1000);
                 if (chart) charts.append(chart);
             }
-            message.textContent = (charts.childElementCount ? 'Wijs een punt aan of gebruik Tab voor de waarde en tijd.' : 'Geen numerieke waarnemingen in deze periode.')
+            message.textContent = (charts.childElementCount ? 'Beweeg over de grafiek of gebruik Tab om meetpunten op hetzelfde tijdstip te vergelijken.' : 'Geen numerieke waarnemingen in deze periode.')
                 + (missing ? ' Meetpunten zonder numerieke waarnemingen: ' + missing + '.' : '')
                 + (truncated ? ' Let op: per meetpunt worden maximaal de 3000 recentste waarnemingen getoond; de periode is onvolledig.' : '')
-                + ' Gaten groter dan 24 uur worden niet verbonden.';
+                + ' Gaten groter dan 24 uur worden niet verbonden of geschat.';
         } catch (error) {
             if (currentRequest === requestNumber) message.textContent = error.message || 'Historie is niet beschikbaar.';
         }
