@@ -108,15 +108,16 @@ geselecteerd (Ctrl of ⌘ voor meerdere), ook buiten de ingestelde rollen.
 Kies 24 uur, 7 dagen, 30 dagen of een eigen periode van maximaal 30 dagen
 in UTC en klik op **Toon grafiek**. De grafiek gebruikt de brontijd, of
 de verzameltijd als de brontijd ontbreekt. Elke eenheid heeft een eigen
-grafiek met dezelfde tijdas. Wijs een punt aan of selecteer het met Tab voor
-de exacte waarde en tijd. Standaard worden alleen °C en Hz met lijnen
-verbonden; per reeks is de lijn aan of uit te zetten. Gebruik geen lijnen
-voor tellers of statuscodes. Lijnen zijn geen extra metingen en gaten van
-meer dan 24 uur blijven open. Andere numerieke waarden worden standaard
-als losse punten getoond; tekstwaarden blijven alleen als laatste waarde
-zichtbaar. Er worden maximaal 3000 recentste waarnemingen per meetpunt
-getoond; bij afkapping verschijnt een waarschuwing. Historie is alleen
-beschikbaar vanaf de eigen verzameling en wordt niet bij myUplink aangevuld.
+grafiek met dezelfde tijdas en logische verdelingen op de y-as. Reeksen zijn
+standaard met een lijn verbonden; de legenda schakelt zowel de lijn als de
+meetpunten in of uit. Wijs de grafiek aan of selecteer een punt met Tab om
+alle reeksen op dat tijdstip te vergelijken. Als een reeks daar geen exacte
+meting heeft, wordt een lineaire schatting tussen waarnemingen getoond en
+duidelijk als schatting aangeduid; buiten waarnemingen of over gaten van meer
+dan 24 uur wordt geen waarde geschat. Lijnen zijn geen extra metingen.
+Er worden maximaal 3000 recentste waarnemingen per meetpunt getoond; bij
+afkapping verschijnt een waarschuwing. Historie is alleen beschikbaar vanaf
+de eigen verzameling en wordt niet bij myUplink aangevuld.
 
 Voer de gerichte tests uit met `php tests/collector_test.php`,
 `php tests/collector_http_test.php` en `php tests/dashboard_test.php`.

@@ -51,6 +51,16 @@ foreach ($sourcePointIds as $role => $sourcePointId) {
     $expectedMapping[$role] = $measurementId;
 }
 expect_same($expectedMapping, nibe_dashboard_default_role_mapping($measurements), 'default roles match exact device and source point IDs');
+expect_same('Aanvoer', nibe_dashboard_point_name([
+    'source_device_id' => $deviceId,
+    'source_point_id' => '44058',
+    'name' => 'Supply line (EB101-BT12)',
+]), 'known points use friendly names');
+expect_same('Aanvoer', nibe_dashboard_point_name([
+    'source_device_id' => 'another-device',
+    'source_point_id' => '44058',
+    'name' => 'Aanvoer',
+]), 'other devices preserve their source point name');
 
 $request = nibe_dashboard_history_request(['points' => '1,22', 'start' => '100', 'end' => '200']);
 expect_same(['points' => ['1', '22'], 'start' => 100, 'end' => 200], $request, 'valid history request');
