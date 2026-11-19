@@ -36,6 +36,8 @@ $sourcePointIds = [
     'calculated_supply' => '43009',
     'supply' => '44058',
     'return' => '44055',
+    'electric_power' => '32486',
+    'defrost' => '44703',
 ];
 $measurements = [
     ['measurement_point_id' => '99', 'source_device_id' => 'another-device', 'source_point_id' => '40033'],
@@ -51,6 +53,8 @@ foreach ($sourcePointIds as $role => $sourcePointId) {
     $expectedMapping[$role] = $measurementId;
 }
 expect_same($expectedMapping, nibe_dashboard_default_role_mapping($measurements), 'default roles match exact device and source point IDs');
+expect_same('1', nibe_dashboard_role_mapping($measurements, '{"electric_power":"1","defrost":"1"}')['defrost'],
+    'configured roles override defaults');
 expect_same('Aanvoer', nibe_dashboard_point_name([
     'source_device_id' => $deviceId,
     'source_point_id' => '44058',
@@ -156,6 +160,16 @@ expect_same(1, $performance['defrost_periods']['24h']['count'], 'defrost transit
 expect_same(600, $performance['defrost_periods']['24h']['seconds'], 'defrost time is measured from observed samples');
 expect_same(1, $performance['defrost_periods']['7d']['count'], 'defrost metrics support a selected seven-day period');
 expect_same(5.0, $performance['delta_t_now'], 'current delta T requires recent matching measurements with compatible temperature units');
+expect_same(null, nibe_dashboard_performance_metrics([
+    'supply' => [['raw_value' => '25.8', 'source_timestamp' => '2026-01-02 11:40:00', 'collected_at' => '2026-01-02 12:00:00']],
+    'return' => [['raw_value' => '26.2', 'source_timestamp' => '2026-01-02 11:41:00', 'collected_at' => '2026-01-02 12:00:00']],
+], ['supply' => '°C', 'return' => '°C'], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC'))
+)['delta_t_now'], 'recent collection does not make old source temperatures current');
+expect_same(null, nibe_dashboard_performance_metrics([
+    'supply' => [['raw_value' => '25.8', 'source_timestamp' => '2026-01-02 11:50:00']],
+    'return' => [['raw_value' => '26.2', 'source_timestamp' => '2026-01-02 11:56:00']],
+], ['supply' => '°C', 'return' => '°C'], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC'))
+)['delta_t_now'], 'current delta T does not combine temperatures more than five minutes apart');
 expect_same(null, nibe_dashboard_performance_metrics([
     'electric_power' => [['raw_value' => '500', 'source_timestamp' => '2026-01-02 11:50:00']],
     'heat_power' => [['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:50:00']],

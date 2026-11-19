@@ -12,6 +12,8 @@ function nibe_dashboard_default_role_mapping(array $measurements): array
         'calculated_supply' => '43009',
         'supply' => '44058',
         'return' => '44055',
+        'electric_power' => '32486',
+        'defrost' => '44703',
     ];
     $mapping = [];
 
