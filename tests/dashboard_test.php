@@ -158,7 +158,7 @@ $performance = nibe_dashboard_performance_metrics([
     'return' => 'C',
 ], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
 expect_same(4.0, $performance['cop_now'], 'COP converts compatible power units');
-expect_same(4.0, $performance['periods']['today']['cop'], 'daily COP averages observed power ratios');
+expect_same(4.0, $performance['periods']['today']['cop'], 'daily COP is the ratio of integrated power');
 expect_same('2026-01-02 11:50:00', $performance['cop_now_timestamp'], 'current COP exposes the measurement time');
 expect_same(0.04, round($performance['periods']['today']['electricity'], 2), 'electric energy integrates W samples at five minutes each');
 expect_same(0.17, round($performance['periods']['today']['heat'], 2), 'heat energy integrates kW samples at five minutes each');
