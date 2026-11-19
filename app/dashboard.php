@@ -30,6 +30,15 @@ function nibe_dashboard_default_role_mapping(array $measurements): array
         }
     }
 
+    if (!isset($mapping['heat_power'])) {
+        foreach ($measurements as $measurement) {
+            if ((string) ($measurement['source_point_id'] ?? '') === '598') {
+                $mapping['heat_power'] = (string) $measurement['measurement_point_id'];
+                break;
+            }
+        }
+    }
+
     return $mapping;
 }
 
