@@ -14,6 +14,37 @@
         if (Number.isFinite(timestamp)) time.textContent = localDateTime(timestamp);
     }
 
+    const settingDialog = document.getElementById('setting-dialog');
+    const settingForm = document.getElementById('setting-form');
+    if (settingDialog && settingForm) {
+        const fields = Object.fromEntries([...settingForm.elements].map(field => [field.name, field]));
+        document.getElementById('setting-add').addEventListener('click', () => {
+            settingForm.reset();
+            fields.id.value = '';
+            fields.changed_at.value = new Date().toISOString().slice(0, 16);
+            document.getElementById('setting-dialog-title').textContent = 'Instelling vastleggen';
+            settingDialog.showModal();
+        });
+        for (const button of document.querySelectorAll('.setting-edit')) {
+            button.addEventListener('click', () => {
+                fields.id.value = button.dataset.id;
+                fields.setting.value = button.dataset.setting;
+                fields.old_value.value = button.dataset.oldValue;
+                fields.new_value.value = button.dataset.newValue;
+                fields.note.value = button.dataset.note;
+                fields.changed_at.value = button.dataset.changedAt;
+                document.getElementById('setting-dialog-title').textContent = 'Instelling bewerken';
+                settingDialog.showModal();
+            });
+        }
+        document.getElementById('setting-cancel').addEventListener('click', () => settingDialog.close());
+        for (const form of document.querySelectorAll('.setting-delete')) {
+            form.addEventListener('submit', event => {
+                if (!window.confirm('Weet je zeker dat je deze instelling wilt verwijderen?')) event.preventDefault();
+            });
+        }
+    }
+
     const charts = document.getElementById('charts');
     if (!charts) return;
     const points = charts.dataset.points.split(',').filter(Boolean);
@@ -74,13 +105,9 @@
         const values = item.values;
         let next = values.findIndex(point => point.time >= time);
         if (next !== -1 && Math.abs(values[next].time - time) < 1) {
-            return {value: values[next].value, raw: values[next].raw, estimated: false};
+            return {value: values[next].value, raw: values[next].raw};
         }
-        if (next <= 0 || next === -1) return null;
-        const before = values[next - 1], after = values[next];
-        if (after.time - before.time > 86400000) return null;
-        const fraction = (time - before.time) / (after.time - before.time);
-        return {value: before.value + fraction * (after.value - before.value), estimated: true};
+        return null;
     }
 
     function drawGroup(unit, series, start, end) {
@@ -131,7 +158,7 @@
             legend.append(li);
             let path = '', previous = null;
             for (const point of item.values) {
-                path += (previous === null || point.time - previous > 86400000 ? ' M ' : ' L ')
+                path += (previous === null || point.time - previous > 3600000 ? ' M ' : ' L ')
                     + x(point.time) + ' ' + y(point.value);
                 previous = point.time;
             }
@@ -175,8 +202,7 @@
                 item.comparisonMarker.setAttribute('cx', x(time));
                 item.comparisonMarker.setAttribute('cy', y(value.value));
                 item.comparisonMarker.setAttribute('visibility', 'visible');
-                descriptions.push(item.label + ': ' + (value.estimated ? numberFormat.format(value.value) : value.raw)
-                    + (unit ? ' ' + unit : '') + (value.estimated ? ' (geschat)' : ' (gemeten)'));
+                descriptions.push(item.label + ': ' + value.raw + (unit ? ' ' + unit : '') + ' (gemeten)');
             }
             detail.textContent = descriptions.join('\n');
         }
@@ -207,7 +233,7 @@
             return;
         }
         const end = period.value === 'custom' ? Date.parse(endInput.value) : Date.now();
-        const duration = period.value === '4h' ? 4 * 3600000 : Number(period.value) * 86400000;
+        const duration = period.value === '6h' ? 6 * 3600000 : Number(period.value) * 86400000;
         const start = period.value === 'custom' ? Date.parse(startInput.value) : end - duration;
         if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 30 * 86400000) {
             message.textContent = 'Kies een geldige periode van maximaal 30 dagen.';
@@ -247,7 +273,7 @@
             message.textContent = (charts.childElementCount ? 'Beweeg over de grafiek of gebruik Tab om meetpunten op hetzelfde tijdstip te vergelijken.' : 'Geen numerieke waarnemingen in deze periode.')
                 + (missing ? ' Meetpunten zonder numerieke waarnemingen: ' + missing + '.' : '')
                 + (truncated ? ' Let op: per meetpunt worden maximaal de 3000 recentste waarnemingen getoond; de periode is onvolledig.' : '')
-                + ' Gaten groter dan 24 uur worden niet verbonden of geschat.';
+                + ' Gaten groter dan 1 uur worden niet verbonden; ontbrekende waarden worden niet geschat.';
         } catch (error) {
             if (currentRequest === requestNumber) message.textContent = error.message || 'Historie is niet beschikbaar.';
         }
