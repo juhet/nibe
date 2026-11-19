@@ -10,7 +10,11 @@ function nibe_escape(?string $value): string
 
 $measurements = [];
 $connections = [];
+$defaultRoleMapping = [];
+$historyByRole = [];
+$kpis = ['compressor_starts' => null, 'average_delta_t' => null, 'average_run_seconds' => null];
 $databaseReady = true;
+$now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
 try {
     $database = nibe_database();
@@ -33,6 +37,65 @@ try {
     $statement->execute();
     $measurements = $statement->fetchAll();
     $defaultRoleMapping = nibe_dashboard_default_role_mapping($measurements);
+    $measurementById = [];
+    foreach ($measurements as $measurement) {
+        $measurementById[(string) $measurement['measurement_point_id']] = $measurement;
+    }
+
+    $historyRoles = ['frequency', 'supply', 'return'];
+    $historyIds = [];
+    foreach ($historyRoles as $role) {
+        if (isset($defaultRoleMapping[$role])) {
+            $historyIds[$role] = $defaultRoleMapping[$role];
+        }
+    }
+    if ($historyIds !== []) {
+        $placeholders = implode(', ', array_fill(0, count($historyIds), '?'));
+        $historyStart = $now->modify('-24 hours')->format('Y-m-d H:i:s');
+        $historyEnd = $now->format('Y-m-d H:i:s');
+        $historyStatement = $database->prepare(
+            'SELECT measurement_point_id, raw_value, source_timestamp, collected_at
+             FROM nibe_observations
+             WHERE measurement_point_id IN (' . $placeholders . ')
+               AND ((source_timestamp >= ? AND source_timestamp <= ?)
+                    OR (source_timestamp IS NULL AND collected_at >= ? AND collected_at <= ?))
+             ORDER BY COALESCE(source_timestamp, collected_at), id'
+        );
+        $historyStatement->execute([
+            ...array_values($historyIds),
+            $historyStart,
+            $historyEnd,
+            $historyStart,
+            $historyEnd,
+        ]);
+        foreach ($historyStatement->fetchAll() as $observation) {
+            foreach ($historyIds as $role => $measurementId) {
+                if ((string) $observation['measurement_point_id'] === $measurementId) {
+                    $historyByRole[$role][] = $observation;
+                    break;
+                }
+            }
+        }
+
+        if (isset($historyIds['frequency'])) {
+            $baselineStatement = $database->prepare(
+                'SELECT raw_value, source_timestamp, collected_at
+                 FROM nibe_observations
+                 WHERE measurement_point_id = ?
+                   AND (source_timestamp < ? OR (source_timestamp IS NULL AND collected_at < ?))
+                 ORDER BY COALESCE(source_timestamp, collected_at) DESC, id DESC
+                 LIMIT 1'
+            );
+            $baselineStatement->execute([$historyIds['frequency'], $historyStart, $historyStart]);
+            $baseline = $baselineStatement->fetch();
+            if ($baseline !== false) {
+                $historyByRole['frequency'][] = $baseline;
+            }
+        }
+    }
+    $supplyUnit = $measurementById[$defaultRoleMapping['supply'] ?? '']['unit'] ?? '';
+    $returnUnit = $measurementById[$defaultRoleMapping['return'] ?? '']['unit'] ?? '';
+    $kpis = nibe_dashboard_kpis($historyByRole, (string) $supplyUnit, (string) $returnUnit, $now);
 
     $connectionStatement = $database->prepare(
         'SELECT source, authorization_status, last_success_at
@@ -47,7 +110,21 @@ try {
 }
 
 $installationLabel = nibe_env('NIBE_INSTALLATION_LABEL', 'NIBE-installatie');
-$now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+$importantRoles = [
+    'indoor' => 'Temperatuur in huis',
+    'hot_water' => 'Temperatuur warm tapwater',
+    'outdoor' => 'Buitentemperatuur',
+    'degree_minutes' => 'Graadminuten',
+    'frequency' => 'Compressorfrequentie',
+    'calculated_supply' => 'Berekende toevoer',
+    'supply' => 'Aanvoer',
+    'return' => 'Retour',
+];
+$chartRoleOrder = ['hot_water', 'calculated_supply', 'supply', 'return', 'indoor', 'outdoor'];
+$chartPointIds = array_values(array_filter(array_map(
+    static fn (string $role): ?string => $defaultRoleMapping[$role] ?? null,
+    $chartRoleOrder
+)));
 ?>
 <!doctype html>
 <html lang="nl">
@@ -62,36 +139,41 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         .muted { color: #526170; }
         .notice { padding: 1rem; border-radius: .5rem; background: #fff3cd; }
         .measurements { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 1rem; margin-top: 1.5rem; }
-        .measurement { min-width: 0; padding: 1rem; background: white; border-radius: .5rem; box-shadow: 0 1px 3px #17212b12; }
+        .measurement { min-width: 0; padding: .75rem; background: white; border-radius: .5rem; box-shadow: 0 1px 3px #17212b12; }
         .measurement h2 { margin: 0; font-size: 1rem; }
         .measurement .device { margin: .25rem 0 .75rem; }
         .value { margin: .5rem 0; font-size: 1.8rem; font-weight: 650; overflow-wrap: anywhere; }
         .unit { font-size: 1rem; font-weight: 400; }
-        .trend { display: block; width: 100%; height: 3rem; margin: .5rem 0; }
-        .status { font-weight: 600; }
+        .status { display: inline-flex; align-items: center; gap: .4rem; margin: .25rem 0 0; font-size: .9rem; font-weight: 600; }
+        .status::before { width: .65rem; height: .65rem; border-radius: 50%; background: #b42318; content: ""; }
+        .status.live::before { background: #188038; }
         .status.stale { color: #8a4b00; }
+        .status.stale::before { background: #d97706; }
+        .important-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .5rem 1rem; }
+        .important-item { min-width: 0; padding: .55rem .7rem; background: #f3f6f8; border-radius: .4rem; }
+        .important-item h3 { margin: 0; font-size: .9rem; }
+        .important-item .value { margin: .15rem 0; font-size: 1.25rem; }
+        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .5rem 1rem; margin-top: 1rem; }
+        .kpi { padding: .65rem .75rem; background: #eaf2f4; border-radius: .4rem; }
+        .kpi strong { display: block; font-size: 1.2rem; }
         .connections { margin-top: 1.5rem; padding: 1rem; background: white; border-radius: .5rem; }
         .connections h2 { margin: 0 0 .5rem; font-size: 1rem; }
         .connections ul { margin: 0; padding-left: 1.25rem; }
         .panel { margin-top: 1.5rem; padding: 1.25rem; background: white; border-radius: .5rem; }
-        .roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem; }
-        .role { padding: .8rem; background: #f3f6f8; border-radius: .5rem; min-width: 0; }
-        .role label { font-weight: 650; display: block; }
         select, input, button { font: inherit; max-width: 100%; padding: .4rem; }
-        .role select { width: 100%; }
         .controls { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
         .controls label { display: grid; gap: .25rem; }
-        .point-select { width: 100%; min-height: 10rem; }
         .chart { width: 100%; height: auto; min-height: 15rem; overflow: visible; }
         .chart text { font-size: 13px; fill: #34495a; }
         .legend { display: flex; gap: 1rem; flex-wrap: wrap; padding: 0; list-style: none; }
         .legend span { display: inline-block; width: 1em; height: .2em; vertical-align: middle; }
+        .comparison { white-space: pre-line; }
         summary { cursor: pointer; font-weight: 650; }
     </style>
 </head>
 <body>
     <h1><?= nibe_escape($installationLabel) ?></h1>
-    <p class="muted">Alle tijden zijn UTC. Dit dashboard wijzigt geen instellingen van de warmtepomp.</p>
+    <p class="muted">Tijden worden weergegeven in de tijdzone van je browser. Dit dashboard wijzigt geen instellingen van de warmtepomp.</p>
 
     <?php if ($databaseReady && $connections !== []): ?>
         <section class="connections" aria-label="Verbindingsstatus">
@@ -109,8 +191,10 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
                     <li>
                         <strong><?= nibe_escape($connection['source']) ?>:</strong>
                         <?= nibe_escape($connectionStatus) ?>.
-                        Laatste geslaagde verzameling (UTC):
-                        <?= $connection['last_success_at'] === null ? 'Geen' : nibe_escape($connection['last_success_at']) ?>
+                        Laatste geslaagde verzameling:
+                        <?= $connection['last_success_at'] === null
+                            ? 'Geen'
+                            : '<time class="local-time" datetime="' . nibe_escape($connection['last_success_at']) . '">' . nibe_escape($connection['last_success_at']) . '</time>' ?>
                     </li>
                 <?php endforeach; ?>
             </ul>
@@ -122,108 +206,88 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
     <?php elseif ($measurements === []): ?>
         <p class="notice">Er zijn nog geen meetpunten of metingen beschikbaar.</p>
     <?php else: ?>
-        <p class="muted">Verouderd betekent dat de brontijd (of, als die ontbreekt, de verzameltijd) meer dan 24 uur oud is. Een oude brontijd kan ook betekenen dat een waarde niet is gewijzigd.</p>
         <section class="panel" aria-labelledby="important-title">
             <h2 id="important-title">Belangrijkste metingen</h2>
-            <p class="muted">Bekende meetpunten worden automatisch gekoppeld. Je kunt de rollen aanpassen; keuzes worden alleen in deze browser bewaard.</p>
-            <div class="roles">
-                <?php foreach ([
-                    'indoor' => 'Temperatuur in huis',
-                    'hot_water' => 'Temperatuur warm tapwater',
-                    'outdoor' => 'Buitentemperatuur',
-                    'degree_minutes' => 'Graadminuten',
-                    'frequency' => 'Huidige compressorfrequentie',
-                    'calculated_supply' => 'Berekende toevoer klimaatsysteem',
-                    'supply' => 'Aanvoer',
-                    'return' => 'Retour',
-                    'runtime' => 'Bedrijfstijd',
-                    'starts' => 'Aantal starts',
-                    'auxiliary' => 'Bijverwarming elektrisch element',
-                ] as $role => $label): ?>
-                    <?php $defaultPointId = $defaultRoleMapping[$role] ?? null; ?>
-                    <div class="role">
-                        <label for="role-<?= nibe_escape($role) ?>"><?= nibe_escape($label) ?></label>
-                        <select id="role-<?= nibe_escape($role) ?>" class="role-select" data-role="<?= nibe_escape($role) ?>">
-                            <option value="">Niet ingesteld</option>
-                            <?php foreach ($measurements as $measurement): ?>
-                                <option value="<?= nibe_escape((string) $measurement['measurement_point_id']) ?>"
-                                    <?= (string) $measurement['measurement_point_id'] === $defaultPointId ? 'selected' : '' ?>
-                                    data-value="<?= nibe_escape($measurement['raw_value']) ?>"
-                                    data-has-value="<?= $measurement['raw_value'] === null ? '0' : '1' ?>"
-                                    data-unit="<?= nibe_escape($measurement['unit']) ?>"
-                                    data-source-time="<?= nibe_escape($measurement['source_timestamp']) ?>"
-                                    data-collected-at="<?= nibe_escape($measurement['collected_at']) ?>">
-                                    <?= nibe_escape($measurement['name'] . ' — ' . $measurement['device_name'] . ' [' . $measurement['source_point_id'] . ']') ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <p class="value role-value">Niet ingesteld</p>
-                        <p class="muted role-time"></p>
-                    </div>
+            <div class="important-grid">
+                <?php foreach ($importantRoles as $role => $label): ?>
+                    <?php if (isset($defaultRoleMapping[$role], $measurementById[$defaultRoleMapping[$role]])): ?>
+                        <?php
+                        $measurement = $measurementById[$defaultRoleMapping[$role]];
+                        $freshnessTimestamp = $measurement['source_timestamp'] ?? $measurement['collected_at'];
+                        $isEmpty = $measurement['raw_value'] === null || $freshnessTimestamp === null;
+                        $isStale = !$isEmpty
+                            && new DateTimeImmutable($freshnessTimestamp, new DateTimeZone('UTC')) < $now->modify('-24 hours');
+                        $statusClass = $isEmpty ? '' : ($isStale ? ' stale' : ' live');
+                        $statusLabel = $isEmpty ? 'Geen meting' : ($isStale ? 'Ouder dan 24 uur' : 'Live');
+                        ?>
+                        <article class="important-item">
+                            <h3><?= nibe_escape($label) ?></h3>
+                            <p class="value">
+                                <?= $isEmpty ? '—' : nibe_escape($measurement['raw_value']) ?>
+                                <?php if (!$isEmpty && $measurement['unit'] !== null && $measurement['unit'] !== ''): ?>
+                                    <span class="unit"><?= nibe_escape($measurement['unit']) ?></span>
+                                <?php endif; ?>
+                            </p>
+                            <p class="status<?= $statusClass ?>"><?= nibe_escape($statusLabel) ?></p>
+                        </article>
+                    <?php endif; ?>
                 <?php endforeach; ?>
+            </div>
+            <p class="muted">Kerncijfers afgelopen 24 uur</p>
+            <div class="kpis" aria-label="Kerncijfers afgelopen 24 uur">
+                <div class="kpi">Compressorstarts<strong><?= $kpis['compressor_starts'] === null ? '—' : nibe_escape((string) $kpis['compressor_starts']) ?></strong></div>
+                <div class="kpi">Gemiddelde ΔT<strong><?= $kpis['average_delta_t'] === null ? '—' : nibe_escape(number_format($kpis['average_delta_t'], 1, ',', '') . ' ' . $supplyUnit) ?></strong></div>
+                <div class="kpi">Gemiddelde compressor-runduur<strong><?= $kpis['average_run_seconds'] === null ? '—' : nibe_escape(number_format($kpis['average_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
             </div>
         </section>
         <section class="panel" aria-labelledby="chart-title">
             <h2 id="chart-title">Metingen vergelijken</h2>
-            <p class="muted">De beschikbare standaardmeetpunten worden automatisch getoond; je kunt maximaal acht meetpunten kiezen (Ctrl of ⌘ voor meerdere). Verschillende eenheden krijgen een eigen grafiek met dezelfde tijdas. Lijnen zijn een visuele verbinding; waarden tussen metingen worden bij vergelijken als schatting getoond.</p>
-            <label for="chart-points">Meetpunten</label>
-            <select id="chart-points" class="point-select" multiple>
-                <?php foreach ($measurements as $measurement): ?>
-                    <option value="<?= nibe_escape((string) $measurement['measurement_point_id']) ?>"
-                        <?= in_array((string) $measurement['measurement_point_id'], array_values($defaultRoleMapping), true) ? 'selected' : '' ?>>
-                        <?= nibe_escape(nibe_dashboard_point_name($measurement) . ' — ' . $measurement['device_name']) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-            <p><button type="button" id="chart-use-roles">Gebruik ingestelde metingen</button></p>
+            <p class="muted">De standaardtemperaturen worden automatisch getoond. Verschillende eenheden krijgen een eigen grafiek; waarden tussen metingen worden als schatting getoond.</p>
             <div class="controls">
                 <label>Periode
                     <select id="chart-period">
+                        <option value="4h" selected>4 uur</option>
                         <option value="1">24 uur</option>
                         <option value="7">7 dagen</option>
                         <option value="30">30 dagen</option>
-                        <option value="custom">Zelf kiezen (UTC)</option>
+                        <option value="custom">Zelf kiezen</option>
                     </select>
                 </label>
-                <label>Van (UTC)<input type="datetime-local" id="chart-start" disabled></label>
-                <label>Tot (UTC)<input type="datetime-local" id="chart-end" disabled></label>
+                <label>Van<input type="datetime-local" id="chart-start" disabled></label>
+                <label>Tot<input type="datetime-local" id="chart-end" disabled></label>
                 <button type="button" id="chart-show">Toon grafiek</button>
             </div>
-            <p id="chart-message" class="muted" role="status">Kies meetpunten en een periode.</p>
-            <div id="charts"></div>
-            <noscript>Voor het kiezen van meetpunten en het tonen van grafieken is JavaScript nodig.</noscript>
+            <p id="chart-message" class="muted" role="status">Grafiek laden…</p>
+            <div id="charts" data-points="<?= nibe_escape(implode(',', $chartPointIds)) ?>"></div>
+            <noscript>Voor het tonen van grafieken is JavaScript nodig.</noscript>
         </section>
         <details class="panel">
         <summary>Alle meetpunten (<?= count($measurements) ?>)</summary>
         <section class="measurements" aria-label="Laatste meetwaarden">
             <?php foreach ($measurements as $measurement): ?>
                 <?php
-                $isStale = false;
                 $freshnessTimestamp = $measurement['source_timestamp'] ?? $measurement['collected_at'];
-                if ($freshnessTimestamp !== null) {
-                    $observedAt = new DateTimeImmutable($freshnessTimestamp, new DateTimeZone('UTC'));
-                    $isStale = $observedAt < $now->modify('-24 hours');
-                }
+                $isEmpty = $measurement['raw_value'] === null || $freshnessTimestamp === null;
+                $isStale = !$isEmpty
+                    && new DateTimeImmutable($freshnessTimestamp, new DateTimeZone('UTC')) < $now->modify('-24 hours');
                 ?>
                 <article class="measurement">
                     <h2><?= nibe_escape($measurement['name']) ?></h2>
                     <p class="device muted"><?= nibe_escape($measurement['device_name']) ?> · Bron-ID: <?= nibe_escape($measurement['source_point_id']) ?></p>
                     <p class="value">
                         <?= $measurement['raw_value'] === null ? 'Geen meting' : nibe_escape($measurement['raw_value']) ?>
-                        <?php if ($measurement['unit'] !== null && $measurement['unit'] !== ''): ?>
+                        <?php if (!$isEmpty && $measurement['unit'] !== null && $measurement['unit'] !== ''): ?>
                             <span class="unit"><?= nibe_escape($measurement['unit']) ?></span>
                         <?php endif; ?>
                     </p>
-                    <p class="muted">Bron tijd (UTC): <?= $measurement['source_timestamp'] === null ? 'Niet aangeleverd' : nibe_escape($measurement['source_timestamp']) ?></p>
-                    <p class="muted">Verzameld (UTC): <?= $measurement['collected_at'] === null ? 'Niet beschikbaar' : nibe_escape($measurement['collected_at']) ?></p>
-                    <p class="status<?= $isStale ? ' stale' : '' ?>">
-                        <?= $freshnessTimestamp === null ? 'Geen meting beschikbaar' : ($isStale ? 'Verouderd (>24 uur)' : 'Binnen 24 uur') ?>
+                    <p class="status<?= $isEmpty ? '' : ($isStale ? ' stale' : ' live') ?>">
+                        <?= $isEmpty ? 'Geen meting' : ($isStale ? 'Ouder dan 24 uur' : 'Live') ?>
                     </p>
                 </article>
             <?php endforeach; ?>
         </section>
         </details>
-        <script src="dashboard.js" defer></script>
     <?php endif; ?>
+    <script src="dashboard.js" defer></script>
 </body>
 </html>

@@ -62,6 +62,39 @@ expect_same('Supply line (EB101-BT12)', nibe_dashboard_point_name([
     'name' => 'Supply line (EB101-BT12)',
 ]), 'other devices preserve their source point name');
 
+$kpis = nibe_dashboard_kpis([
+    'frequency' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
+        ['raw_value' => '20', 'source_timestamp' => '2026-01-02 11:10:00'],
+        ['raw_value' => '30', 'source_timestamp' => '2026-01-02 11:20:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:30:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:40:00'],
+        ['raw_value' => '25', 'source_timestamp' => '2026-01-02 11:50:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 12:00:00'],
+    ],
+    'supply' => [
+        ['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:00:00'],
+        ['raw_value' => '42', 'source_timestamp' => '2026-01-02 11:10:00'],
+        ['raw_value' => '41', 'source_timestamp' => '2026-01-02 11:20:00'],
+    ],
+    'return' => [
+        ['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:01:00'],
+        ['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:11:00'],
+        ['raw_value' => '34', 'source_timestamp' => '2026-01-02 11:21:00'],
+    ],
+], '°C', 'C', new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
+expect_same(2, $kpis['compressor_starts'], 'compressor starts are counted on zero-to-positive transitions');
+expect_same(6.3, round($kpis['average_delta_t'], 1), 'delta T averages nearby same-unit supply and return samples');
+expect_same(900, $kpis['average_run_seconds'], 'average compressor runtime uses completed runs');
+expect_same(null, nibe_dashboard_kpis([
+    'frequency' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
+        ['raw_value' => '20', 'source_timestamp' => '2026-01-02 11:10:00'],
+    ],
+    'supply' => [['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:00:00']],
+    'return' => [['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:01:00']],
+], '°C', '°F', new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')))['average_delta_t'], 'delta T is unavailable for incompatible units');
+
 $request = nibe_dashboard_history_request(['points' => '1,22', 'start' => '100', 'end' => '200']);
 expect_same(['points' => ['1', '22'], 'start' => 100, 'end' => 200], $request, 'valid history request');
 expect_same(['1', '2', '3', '4', '5', '6', '7', '8'], nibe_dashboard_history_request([
