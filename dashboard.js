@@ -157,8 +157,12 @@
             li.append(swatch, label);
             legend.append(li);
             let path = '', previous = null;
+            const normalizedUnit = unit.trim().toLowerCase();
+            const maxLineGap = ['°c', 'c', 'celsius'].includes(normalizedUnit)
+                ? 24 * 3600000
+                : 3600000;
             for (const point of item.values) {
-                path += (previous === null || point.time - previous > 3600000 ? ' M ' : ' L ')
+                path += (previous === null || point.time - previous > maxLineGap ? ' M ' : ' L ')
                     + x(point.time) + ' ' + y(point.value);
                 previous = point.time;
             }
@@ -224,6 +228,73 @@
         return section;
     }
 
+    function chartSeries(item, index) {
+        const values = item.observations.flatMap(observation => {
+            const raw = observation.raw_value;
+            const timestamp = observation.source_timestamp || observation.collected_at;
+            const time = parseUtc(timestamp);
+            if (typeof raw !== 'string' || !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(raw.trim())
+                || !Number.isFinite(Number(raw)) || !Number.isFinite(time)) return [];
+            return [{raw, value: Number(raw), timestamp, time, timeLabel: observation.source_timestamp ? 'Bron tijd' : 'Verzameld'}];
+        });
+        values.sort((left, right) => left.time - right.time);
+        return {
+            values,
+            color: colors[index],
+            label: item.point.display_name || item.point.name,
+        };
+    }
+
+    for (const button of document.querySelectorAll('.important-chart-toggle')) {
+        const panel = document.getElementById(button.getAttribute('aria-controls'));
+        button.addEventListener('click', async () => {
+            const request = Number(panel.dataset.request || 0) + 1;
+            panel.dataset.request = String(request);
+            if (!panel.hidden) {
+                panel.hidden = true;
+                panel.replaceChildren();
+                button.textContent = 'Toon 24-uursgrafiek';
+                button.setAttribute('aria-expanded', 'false');
+                return;
+            }
+
+            panel.hidden = false;
+            panel.textContent = 'Historie laden…';
+            button.textContent = 'Verberg 24-uursgrafiek';
+            button.setAttribute('aria-expanded', 'true');
+            const end = Date.now();
+            const start = end - 86400000;
+            try {
+                const query = new URLSearchParams({
+                    points: button.dataset.pointId,
+                    start: String(Math.floor(start / 1000)),
+                    end: String(Math.floor(end / 1000)),
+                });
+                const response = await fetch('history.php?' + query);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Historie is niet beschikbaar.');
+                if (panel.hidden || panel.dataset.request !== String(request)) return;
+                const item = data.series[0];
+                const series = chartSeries(item, 0);
+                if (!series.values.length) {
+                    panel.textContent = 'Geen numerieke waarnemingen in de afgelopen 24 uur.';
+                    return;
+                }
+                panel.replaceChildren(drawGroup(item.point.unit || '', [series], start, end));
+                if (item.truncated) {
+                    const warning = document.createElement('p');
+                    warning.className = 'muted';
+                    warning.textContent = 'Niet alle waarnemingen worden getoond.';
+                    panel.append(warning);
+                }
+            } catch (error) {
+                if (!panel.hidden && panel.dataset.request === String(request)) {
+                    panel.textContent = error.message || 'Historie is niet beschikbaar.';
+                }
+            }
+        });
+    }
+
     document.getElementById('chart-show').addEventListener('click', async () => {
         const ids = points;
         charts.replaceChildren();
@@ -252,19 +323,11 @@
             let truncated = false, missing = 0;
             data.series.forEach((item, index) => {
                 const unit = item.point.unit || '';
-                const values = item.observations.flatMap(observation => {
-                    const raw = observation.raw_value;
-                    const timestamp = observation.source_timestamp || observation.collected_at;
-                    const time = parseUtc(timestamp);
-                    if (typeof raw !== 'string' || !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(raw.trim())
-                        || !Number.isFinite(Number(raw)) || !Number.isFinite(time)) return [];
-                    return [{raw, value: Number(raw), timestamp, time, timeLabel: observation.source_timestamp ? 'Bron tijd' : 'Verzameld'}];
-                });
-                if (!values.length) missing++;
+                const series = chartSeries(item, index);
+                if (!series.values.length) missing++;
                 truncated ||= item.truncated;
                 if (!groups.has(unit)) groups.set(unit, []);
-                values.sort((left, right) => left.time - right.time);
-                groups.get(unit).push({values, color: colors[index], label: item.point.display_name || item.point.name});
+                groups.get(unit).push(series);
             });
             for (const [unit, group] of groups) {
                 const chart = drawGroup(unit, group, startSeconds * 1000, endSeconds * 1000);
@@ -273,7 +336,7 @@
             message.textContent = (charts.childElementCount ? 'Beweeg over de grafiek of gebruik Tab om meetpunten op hetzelfde tijdstip te vergelijken.' : 'Geen numerieke waarnemingen in deze periode.')
                 + (missing ? ' Meetpunten zonder numerieke waarnemingen: ' + missing + '.' : '')
                 + (truncated ? ' Let op: per meetpunt worden maximaal de 3000 recentste waarnemingen getoond; de periode is onvolledig.' : '')
-                + ' Gaten groter dan 1 uur worden niet verbonden; ontbrekende waarden worden niet geschat.';
+                + ' Gaten groter dan 1 uur (of 24 uur bij temperaturen) worden niet verbonden; ontbrekende waarden worden niet geschat.';
         } catch (error) {
             if (currentRequest === requestNumber) message.textContent = error.message || 'Historie is niet beschikbaar.';
         }

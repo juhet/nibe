@@ -174,6 +174,10 @@ function nibe_dashboard_compressor_cycles(array $samples, array $units): array
                 $values = array_column($inside($samples[$role] ?? []), 'value');
                 $temperatureAverages[$role] = $values === [] ? null : array_sum($values) / count($values);
             }
+            $hotWater = $inside($samples['hot_water'] ?? []);
+            $hotWaterChange = count($hotWater) < 2
+                ? null
+                : $hotWater[array_key_last($hotWater)]['value'] - $hotWater[0]['value'];
             $degreeMinutes = array_column($inside($samples['degree_minutes'] ?? []), 'value');
             $deltaT = [];
             $returns = $inside($samples['return'] ?? []);
@@ -235,6 +239,21 @@ function nibe_dashboard_compressor_cycles(array $samples, array $units): array
                 return $coveredSeconds >= ($end - $start) * 0.7 ? $energy : null;
             };
 
+            $electricity = $cycleEnergy('electric_power');
+            $heat = $cycleEnergy('heat_power');
+            $averageDeltaT = $normalizedSupply !== '' && $normalizedSupply === $normalizedReturn && $deltaT !== []
+                ? array_sum($deltaT) / count($deltaT)
+                : null;
+            $operation = [];
+            if ($averageDeltaT !== null && $averageDeltaT > 0) {
+                $operation[] = 'Verwarming';
+            } elseif ($averageDeltaT !== null && $averageDeltaT < 0) {
+                $operation[] = 'Koeling';
+            }
+            if ($hotWaterChange !== null && $hotWaterChange >= 1) {
+                $operation[] = 'Warm water';
+            }
+
             $cycles[] = [
                 'start' => $start,
                 'end' => $end,
@@ -247,12 +266,14 @@ function nibe_dashboard_compressor_cycles(array $samples, array $units): array
                 'average_frequency' => $runValues === [] ? null : array_sum($runValues) / count($runValues),
                 'average_supply' => $temperatureAverages['supply'],
                 'average_return' => $temperatureAverages['return'],
-                'average_delta_t' => $normalizedSupply !== '' && $normalizedSupply === $normalizedReturn && $deltaT !== []
-                    ? array_sum($deltaT) / count($deltaT)
-                    : null,
+                'average_delta_t' => $averageDeltaT,
                 'average_outdoor' => $temperatureAverages['outdoor'],
-                'electricity_kwh' => $cycleEnergy('electric_power'),
-                'heat_kwh' => $cycleEnergy('heat_power'),
+                'electricity_kwh' => $electricity,
+                'heat_kwh' => $heat,
+                'cop' => $electricity !== null && $electricity > 0 && $heat !== null
+                    ? $heat / $electricity
+                    : null,
+                'operation' => $operation === [] ? null : implode(' + ', $operation),
             ];
             $cycleIndex = array_key_last($cycles);
             foreach (['degree_minutes_start' => $start, 'degree_minutes_end' => $end] as $key => $time) {
@@ -407,7 +428,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
     ];
     $samples = [];
     $rejected = [];
-    foreach (['frequency', 'supply', 'return', 'calculated_supply', 'outdoor', 'degree_minutes',
+    foreach (['frequency', 'supply', 'return', 'calculated_supply', 'hot_water', 'outdoor', 'degree_minutes',
         'electric_power', 'heat_power', 'electric_energy', 'heat_energy', 'defrost'] as $role) {
         $rejected[$role] = [];
         foreach ($observations[$role] ?? [] as $observation) {
