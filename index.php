@@ -122,13 +122,16 @@ $installationLabel = nibe_env('NIBE_INSTALLATION_LABEL', 'NIBE-installatie');
 $performance += [
     'periods' => [],
     'cop_now' => null,
+    'cop_now_timestamp' => null,
     'cop_warning' => false,
     'delta_t_now' => null,
     'compressor_starts' => null,
+    'compressor_starts_7d' => null,
     'average_run_seconds' => null,
     'longest_run_seconds' => null,
     'shortest_run_seconds' => null,
     'frequency_distribution' => [],
+    'frequency_seconds' => [],
     'defrost_periods' => [],
 ];
 $selectedDefrostPeriod = $_GET['defrost_period'] ?? '24h';
@@ -286,12 +289,14 @@ $chartPointIds = array_values(array_filter(array_map(
             </div>
             <p class="muted">Compressor en warmteafgifte — afgelopen 24 uur</p>
             <div class="kpis">
-                <div class="kpi">Compressorstarts<strong><?= $performance['compressor_starts'] === null ? 'Niet beschikbaar' : nibe_escape((string) $performance['compressor_starts']) ?></strong></div>
+                <div class="kpi">Compressorstarts afgelopen 24 uur<strong><?= $performance['compressor_starts'] === null ? 'Niet beschikbaar' : nibe_escape((string) $performance['compressor_starts']) ?></strong></div>
+                <div class="kpi">Compressorstarts afgelopen 7 dagen<strong><?= $performance['compressor_starts_7d'] === null ? 'Niet beschikbaar' : nibe_escape((string) $performance['compressor_starts_7d']) ?></strong></div>
                 <div class="kpi">Gemiddelde runduur<strong><?= $performance['average_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['average_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
                 <div class="kpi">Langste runduur<strong><?= $performance['longest_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['longest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
                 <div class="kpi">Kortste runduur<strong><?= $performance['shortest_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['shortest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
                 <div class="kpi">ΔT nu<strong><?= $performance['delta_t_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['delta_t_now'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
                 <div class="kpi">Gemiddelde ΔT<strong><?= $performance['periods']['24h']['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['24h']['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
+                <div class="kpi">Gemiddelde ΔT afgelopen 7 dagen<strong><?= $performance['periods']['7d']['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['7d']['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
                 <div class="kpi">Warmtevermogen nu<strong><?= $currentHeatPower === null ? 'Niet beschikbaar' : nibe_escape($currentHeatPower) ?></strong></div>
             </div>
             <p class="muted">ΔT nu vereist aanvoer en retour met dezelfde eenheid, maximaal 5 minuten tussen de brontijden en een recentste meting van maximaal 15 minuten oud. “Live” bij de meetpunten betekent minder dan 24 uur oud en is dus minder strikt.</p>
@@ -300,7 +305,11 @@ $chartPointIds = array_values(array_filter(array_map(
             <h2 id="performance-title">Prestatie-inzichten</h2>
             <h3>Efficiëntie (COP) en energie</h3>
             <div class="metric-grid" aria-label="COP">
-                <div class="metric">COP nu<strong><?= $performance['cop_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['cop_now'], 2, ',', '')) ?></strong></div>
+                <div class="metric">COP nu<strong><?= $performance['cop_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['cop_now'], 2, ',', '')) ?></strong>
+                    <?php if ($performance['cop_now_timestamp'] !== null): ?>
+                        <small>Meetmoment: <time class="local-time" datetime="<?= nibe_escape($performance['cop_now_timestamp']) ?>"><?= nibe_escape($performance['cop_now_timestamp']) ?> UTC</time></small>
+                    <?php endif; ?>
+                </div>
                 <div class="metric">COP vandaag<strong><?= ($performance['periods']['today']['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['cop'], 2, ',', '')) ?></strong></div>
                 <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
                     <div class="metric">COP <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['cop'], 2, ',', '')) ?></strong></div>
@@ -312,15 +321,15 @@ $chartPointIds = array_values(array_filter(array_map(
             <div class="kpis">
                 <div class="kpi">Elektriciteit vandaag (UTC)<strong><?= ($performance['periods']['today']['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['electricity'], 2, ',', '') . ' kWh') ?></strong></div>
                 <div class="kpi">Warmte vandaag (UTC)<strong><?= ($performance['periods']['today']['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['heat'], 2, ',', '') . ' kWh') ?></strong></div>
-                <?php foreach (['7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
+                <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
                     <div class="kpi">Elektriciteit <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['electricity'], 2, ',', '') . ' kWh') ?></strong></div>
                     <div class="kpi">Warmte <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['heat'], 2, ',', '') . ' kWh') ?></strong></div>
                 <?php endforeach; ?>
             </div>
             <h3>Compressorfrequentie — afgelopen 24 uur</h3>
             <div class="bands">
-                <?php foreach (['20-30' => '20–30 Hz', '30-40' => '30–40 Hz', '40-50' => '40–50 Hz', '50-60' => '50–60 Hz', '60+' => '60 Hz of hoger'] as $band => $label): ?>
-                    <div class="metric"><?= nibe_escape($label) ?><strong><?= ($performance['frequency_distribution'][$band] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['frequency_distribution'][$band], 1, ',', '') . '%') ?></strong></div>
+                <?php foreach (['0' => '0 Hz', '1-20' => '1–20 Hz', '20-30' => '20–30 Hz', '30-40' => '30–40 Hz', '40-50' => '40–50 Hz', '50-60' => '50–60 Hz', '60+' => '60 Hz of hoger'] as $band => $label): ?>
+                    <div class="metric"><?= nibe_escape($label) ?><strong><?= ($performance['frequency_distribution'][$band] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['frequency_distribution'][$band], 1, ',', '') . '% · ' . number_format(($performance['frequency_seconds'][$band] ?? 0) / 60, 1, ',', '') . ' min') ?></strong></div>
                 <?php endforeach; ?>
             </div>
             <form method="get" class="controls">
@@ -338,11 +347,12 @@ $chartPointIds = array_values(array_filter(array_map(
             <div class="metric-grid">
                 <div class="metric">Aantal<strong><?= ($defrost['count'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape((string) $defrost['count']) ?></strong></div>
                 <div class="metric">Totale duur<strong><?= ($defrost['seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
+                <div class="metric">Gemiddelde defrostduur<strong><?= ($defrost['average_duration_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_duration_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
                 <div class="metric">Gemiddeld interval<strong><?= ($defrost['average_interval_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_interval_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong></div>
                 <div class="metric">Tijd tijdens draaien<strong><?= ($defrost['percent'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['percent'], 1, ',', '') . '%') ?></strong></div>
             </div>
-            <p class="muted">COP vereist gekoppeld elektrisch vermogen en warmtevermogen (W of kW), met meettijden binnen 5 minuten en een positief elektrisch vermogen. Voor COP nu moet de meting maximaal 15 minuten oud zijn. Warmtevermogen kan niet uit temperaturen alleen worden bepaald.</p>
-            <p class="muted">Energie vereist cumulatieve tellers in kWh of Wh met een meting binnen 6 uur vóór de periode en een eindmeting van maximaal 6 uur oud. Uurwaarden en jaarwaarden die periodiek worden gereset zijn geen geschikte cumulatieve tellers. Ontdooicijfers vereisen een gekoppelde status, voldoende recente historie en een meting binnen 6 uur vóór de periode; het gemiddelde interval vereist minstens twee waargenomen starts.</p>
+            <p class="muted">COP vereist elektrisch vermogen en warmtevermogen (W of kW) en een positief elektrisch vermogen. COP over een periode is de verhouding van de geïntegreerde warmte- en elektriciteitsenergie, met 5 minuten per opgeslagen meting. Voor COP nu moeten beide metingen maximaal 15 minuten oud zijn. Ontbrekende metingen worden niet aangevuld. Warmtevermogen kan niet uit temperaturen alleen worden bepaald.</p>
+            <p class="muted">Energie wordt uit vermogensmetingen geïntegreerd met vijf minuten per opgeslagen meting. Als vermogens niet bruikbaar zijn, vereisen cumulatieve tellers in kWh of Wh een meting binnen 6 uur vóór de periode en een eindmeting van maximaal 6 uur oud; uurwaarden en jaarwaarden die periodiek worden gereset zijn niet geschikt. Ontdooicijfers vereisen een gekoppelde status, voldoende recente historie en een meting binnen 6 uur vóór de periode; het gemiddelde interval vereist minstens twee waargenomen starts.</p>
             <p class="muted">Koppelingen voor prestatie-inzichten (aanpassen via NIBE_DASHBOARD_ROLE_MAP):</p>
             <ul>
                 <?php foreach (['electric_power' => 'Elektrisch vermogen', 'heat_power' => 'Warmtevermogen', 'electric_energy' => 'Elektriciteitsteller', 'heat_energy' => 'Warmteteller', 'defrost' => 'Ontdooistatus'] as $role => $label): ?>
@@ -368,6 +378,8 @@ $chartPointIds = array_values(array_filter(array_map(
                 <label>Van<input type="datetime-local" id="chart-start" disabled></label>
                 <label>Tot<input type="datetime-local" id="chart-end" disabled></label>
                 <button type="button" id="chart-show">Toon grafiek</button>
+                <button type="button" id="chart-zoom-in" aria-label="Inzoomen">Inzoomen</button>
+                <button type="button" id="chart-zoom-out" aria-label="Uitzoomen">Uitzoomen</button>
             </div>
             <p id="chart-message" class="muted" role="status">Grafiek laden…</p>
             <div id="charts" data-points="<?= nibe_escape(implode(',', $chartPointIds)) ?>"></div>

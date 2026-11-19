@@ -107,30 +107,38 @@ van nul naar een positieve compressorfrequentie, het gemiddelde verschil tussen
 aanvoer en retour voor metingen die maximaal vijf minuten uit elkaar liggen en
 de gemiddelde, langste en kortste duur van afgeronde compressorritten. Delta T
 nu en gemiddeld over 24 uur worden alleen getoond als de temperaturen dezelfde
-eenheid hebben en bij elkaar passende metingen beschikbaar zijn. Voor ΔT nu
+eenheid hebben en bij elkaar passende metingen beschikbaar zijn; het
+gemiddelde wordt voor 24 uur en 7 dagen getoond. Voor ΔT nu
 moeten de metingen maximaal vijf minuten uiteen liggen en mag de recentste
 maximaal 15 minuten oud zijn. De aanduiding “Live” betekent daarentegen alleen
 dat een meting minder dan 24 uur oud is. Een nieuwe verzameling maakt een oude
 brontijd niet opnieuw actueel.
 
-Voor het bekende myUplink-apparaat worden ook elektrisch vermogen (bron-ID
-32486) en de ontdooistatus (bron-ID 44703) automatisch gekoppeld. De
+Voor het bekende myUplink-apparaat worden elektrisch vermogen (bron-ID 32486
+of 13), warmtevermogen (bron-ID 598) en de ontdooistatus (bron-ID 44703)
+automatisch gekoppeld wanneer ze beschikbaar zijn. De
 prestatie-inzichten tonen de actieve koppelingen; deze kunnen worden aangepast
 via de rolconfiguratie hieronder.
 
 **Prestatie-inzichten** tonen COP alleen als gekoppelde warmte- en
-elektrische vermogens beschikbaar zijn met eenheden W of kW en meettijden
-maximaal vijf minuten uit elkaar. COP is de gemiddelde verhouding van die
-waargenomen vermogens; een waarschuwing verschijnt als de actuele COP meer dan
-20% afwijkt van het 24-uursgemiddelde. Elektriciteits- en warmteverbruik worden
-alleen uit expliciet gekoppelde cumulatieve energietellers in kWh of Wh berekend,
-met een meting binnen zes uur van de periodegrens en een recente eindmeting.
-Uurwaarden en jaarwaarden die periodiek worden gereset zijn geen cumulatieve
-tellers en mogen niet als zodanig worden gekoppeld.
-Periodegrenzen voor vandaag zijn UTC. Compressorfrequentiebanden worden over
-de afgelopen 24 uur berekend. De defrostperiode is instelbaar op 24 uur, 7 of
-30 dagen. Compressor- en defrostcijfers vereisen voldoende recente metingen en
-een meting vóór de gekozen periode; anders blijven ze niet beschikbaar.
+elektrische vermogens beschikbaar met eenheden W of kW. COP nu vereist dat
+beide metingen maximaal 15 minuten oud zijn en dat het elektrisch vermogen
+groter is dan nul. De historische COP is de verhouding van de afzonderlijk
+geïntegreerde warmte- en elektrische energie. Energie uit vermogen gebruikt
+vijf minuten per opgeslagen meting, zonder ontbrekende metingen aan te vullen.
+Als vermogens niet bruikbaar zijn, kunnen expliciet gekoppelde cumulatieve
+energietellers in kWh of Wh worden gebruikt; tellers vereisen een meting binnen
+zes uur van de periodegrens en een recente eindmeting. Uurwaarden en jaarwaarden
+die periodiek worden gereset zijn geen cumulatieve tellers en mogen niet als
+zodanig worden gekoppeld. Periodegrenzen voor vandaag zijn UTC.
+
+Compressorstarts worden voor 24 uur en 7 dagen getoond. De frequentieverdeling
+over de afgelopen 24 uur toont 0, 1–20, 20–30, 30–40, 40–50, 50–60 en 60 Hz of
+hoger, inclusief percentage en waargenomen tijd per band. De defrostperiode is
+instelbaar op 24 uur, 7 of 30 dagen; naast aantal, totale en gemiddelde duur
+wordt het gemiddelde interval alleen bij minstens twee starts getoond.
+Compressor- en defrostcijfers vereisen voldoende recente metingen en een
+meting vóór de gekozen periode; anders blijven ze niet beschikbaar.
 Frequentiebanden en defrosts worden berekend uit de waargenomen frequentie en
 expliciet gekoppelde numerieke defrostwaarde (0 = uit, groter dan 0 = actief);
 intervallen met gaten van meer dan een uur worden niet als bedrijfstijd gerekend.
@@ -149,8 +157,9 @@ Onder **Metingen vergelijken** worden de beschikbare standaardtemperaturen
 getoond: tapwater, berekende toevoer, aanvoer, retour, temperatuur in huis en
 buitentemperatuur. Kies 4 uur, 24 uur, 7 dagen, 30 dagen of een eigen periode
 van maximaal 30 dagen in de lokale tijdzone; standaard wordt 24 uur getoond.
-Klik op **Toon grafiek** om de gekozen periode te laden. De
-grafiek gebruikt de brontijd, of de verzameltijd als de brontijd ontbreekt.
+Klik op **Toon grafiek** om de gekozen periode te laden; **Inzoomen** en
+**Uitzoomen** halveren of verdubbelen de getoonde periode. De grafiek gebruikt
+de brontijd, of de verzameltijd als de brontijd ontbreekt.
 Elke eenheid heeft een eigen
 grafiek met dezelfde tijdas en logische verdelingen op de y-as. Reeksen zijn
 standaard met een lijn verbonden; de legenda schakelt zowel de lijn als de

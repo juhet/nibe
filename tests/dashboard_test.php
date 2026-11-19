@@ -65,9 +65,14 @@ expect_same('Supply line (EB101-BT12)', nibe_dashboard_point_name([
     'source_point_id' => '44058',
     'name' => 'Supply line (EB101-BT12)',
 ]), 'other devices preserve their source point name');
+expect_same(['electric_power' => '13', 'heat_power' => '598'], nibe_dashboard_default_role_mapping([
+    ['measurement_point_id' => '13', 'source_device_id' => $deviceId, 'source_point_id' => '13'],
+    ['measurement_point_id' => '598', 'source_device_id' => $deviceId, 'source_point_id' => '598'],
+]), 'known power measurement IDs are mapped for performance analysis');
 
 $kpis = nibe_dashboard_kpis([
     'frequency' => [
+        ['raw_value' => '0', 'source_timestamp' => '2025-12-26 11:50:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-01 11:50:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
         ['raw_value' => '20', 'source_timestamp' => '2026-01-02 11:10:00'],
@@ -111,6 +116,7 @@ expect_same(['electric_power' => '101', 'heat_power' => '102'], array_intersect_
 
 $performance = nibe_dashboard_performance_metrics([
     'frequency' => [
+        ['raw_value' => '0', 'source_timestamp' => '2025-12-26 11:50:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-01 11:50:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
         ['raw_value' => '25', 'source_timestamp' => '2026-01-02 11:10:00'],
@@ -118,6 +124,7 @@ $performance = nibe_dashboard_performance_metrics([
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:30:00'],
         ['raw_value' => '55', 'source_timestamp' => '2026-01-02 11:40:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:50:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 12:00:00'],
     ],
     'electric_power' => [['raw_value' => '500', 'source_timestamp' => '2026-01-02 11:50:00']],
     'heat_power' => [['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:50:00']],
@@ -137,6 +144,8 @@ $performance = nibe_dashboard_performance_metrics([
         ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:20:00'],
         ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:25:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:30:00'],
+        ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:35:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:40:00'],
     ],
     'supply' => [['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:58:00']],
     'return' => [['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:59:00']],
@@ -150,6 +159,9 @@ $performance = nibe_dashboard_performance_metrics([
 ], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
 expect_same(4.0, $performance['cop_now'], 'COP converts compatible power units');
 expect_same(4.0, $performance['periods']['today']['cop'], 'daily COP averages observed power ratios');
+expect_same('2026-01-02 11:50:00', $performance['cop_now_timestamp'], 'current COP exposes the measurement time');
+expect_same(0.04, round($performance['periods']['today']['electricity'], 2), 'electric energy integrates W samples at five minutes each');
+expect_same(0.17, round($performance['periods']['today']['heat'], 2), 'heat energy integrates kW samples at five minutes each');
 $pairedPower = nibe_dashboard_performance_metrics([
     'electric_power' => [
         ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:00:00'],
@@ -164,18 +176,60 @@ $pairedPower = nibe_dashboard_performance_metrics([
     ],
 ], ['electric_power' => 'kW', 'heat_power' => 'kW'],
     new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
-expect_same(3.0, $pairedPower['periods']['today']['cop'],
-    'power matching includes five-minute boundaries, prefers earlier ties and does not reuse samples');
-expect_same(2.0, $performance['periods']['today']['electricity'], 'energy consumption uses cumulative kWh readings');
-expect_same(6.0, $performance['periods']['today']['heat'], 'heat production uses cumulative kWh readings');
+expect_same(1.6, round($pairedPower['periods']['today']['cop'], 2),
+    'historical COP is the ratio of the separately integrated power measurements');
+expect_same(1.25, $pairedPower['periods']['today']['electricity'], 'electricity integrates all five-minute power samples');
+expect_same(2.0, $pairedPower['periods']['today']['heat'], 'heat integrates all five-minute power samples');
+$currentCop = nibe_dashboard_performance_metrics([
+    'electric_power' => [['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:45:00']],
+    'heat_power' => [['raw_value' => '3', 'source_timestamp' => '2026-01-02 11:55:00']],
+], ['electric_power' => 'kW', 'heat_power' => 'kW'],
+    new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
+expect_same(1.5, $currentCop['cop_now'], 'current COP accepts separate latest samples up to fifteen minutes old');
+expect_same('2026-01-02 11:55:00', $currentCop['cop_now_timestamp'], 'current COP time is the later input sample time');
+expect_same(1.5, $currentCop['periods']['today']['cop'], 'historical COP does not require artificially paired timestamps');
+expect_same(0.04, round($performance['periods']['today']['electricity'], 2), 'power integration takes precedence over optional cumulative counters');
+expect_same(0.17, round($performance['periods']['today']['heat'], 2), 'heat production is integrated from heat power');
 expect_same(2, $performance['compressor_starts'], 'performance metrics count compressor starts');
+expect_same(2, $performance['compressor_starts_7d'], 'compressor starts are also counted over seven days');
 expect_same(1200, $performance['longest_run_seconds'], 'longest completed compressor run is reported');
 expect_same(600, $performance['shortest_run_seconds'], 'shortest completed compressor run is reported');
-expect_same(33.3, round($performance['frequency_distribution']['20-30'], 1), 'frequency band percentages use observed compressor runtime');
-expect_same(1, $performance['defrost_periods']['24h']['count'], 'defrost transitions are counted');
-expect_same(600, $performance['defrost_periods']['24h']['seconds'], 'defrost time is measured from observed samples');
-expect_same(1, $performance['defrost_periods']['7d']['count'], 'defrost metrics support a selected seven-day period');
+expect_same(16.7, round($performance['frequency_distribution']['20-30'], 1), 'frequency band percentages use total observed time');
+expect_same(50, $performance['frequency_distribution']['0'], 'the zero-hertz band includes time when the compressor is stopped');
+expect_same(1800, $performance['frequency_seconds']['0'], 'frequency bands expose total time per band');
+$allFrequencyBands = nibe_dashboard_performance_metrics([
+    'frequency' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-01 11:55:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 10:55:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
+        ['raw_value' => '10', 'source_timestamp' => '2026-01-02 11:05:00'],
+        ['raw_value' => '20', 'source_timestamp' => '2026-01-02 11:10:00'],
+        ['raw_value' => '30', 'source_timestamp' => '2026-01-02 11:15:00'],
+        ['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:20:00'],
+        ['raw_value' => '50', 'source_timestamp' => '2026-01-02 11:25:00'],
+        ['raw_value' => '60', 'source_timestamp' => '2026-01-02 11:30:00'],
+        ['raw_value' => '60', 'source_timestamp' => '2026-01-02 11:35:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:40:00'],
+    ],
+], [], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
+foreach (['0', '1-20', '20-30', '30-40', '40-50', '50-60', '60+'] as $band) {
+    expect_same(true, $allFrequencyBands['frequency_seconds'][$band] > 0, 'frequency band ' . $band . ' accumulates time');
+}
+expect_same(2, $performance['defrost_periods']['24h']['count'], 'defrost transitions are counted');
+expect_same(900, $performance['defrost_periods']['24h']['seconds'], 'defrost time is measured from observed samples');
+expect_same(450, $performance['defrost_periods']['24h']['average_duration_seconds'], 'average duration uses completed defrost cycles');
+expect_same(900, $performance['defrost_periods']['24h']['average_interval_seconds'], 'average interval is exposed when at least two defrosts are observed');
+expect_same(null, nibe_dashboard_performance_metrics([
+    'defrost' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
+        ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:05:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:10:00'],
+    ],
+], [], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC'))
+)['defrost_periods']['24h']['average_interval_seconds'], 'average interval is unavailable with only one defrost');
+expect_same(2, $performance['defrost_periods']['7d']['count'], 'defrost metrics support a selected seven-day period');
 expect_same(5.0, $performance['delta_t_now'], 'current delta T requires recent matching measurements with compatible temperature units');
+expect_same(5.0, $performance['periods']['7d']['average_delta_t'], 'average delta T is available for seven days');
 expect_same(null, nibe_dashboard_performance_metrics([
     'supply' => [['raw_value' => '25.8', 'source_timestamp' => '2026-01-02 11:40:00', 'collected_at' => '2026-01-02 12:00:00']],
     'return' => [['raw_value' => '26.2', 'source_timestamp' => '2026-01-02 11:41:00', 'collected_at' => '2026-01-02 12:00:00']],
