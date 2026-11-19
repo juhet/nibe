@@ -14,11 +14,11 @@ function nibe_debug(mixed $value, array $checks): string
         return '';
     }
 
-    $html = '<div class="debug"><b>Debug:</b><ul>';
+    $html = '<details class="debug"><summary>Toelichting</summary><ul>';
     foreach ($checks as $check) {
         $html .= '<li>' . ($check['ok'] ? '✓ ' : '✗ ') . nibe_escape($check['message']) . '</li>';
     }
-    return $html . '</ul></div>';
+    return $html . '</ul></details>';
 }
 
 $measurements = [];
@@ -221,6 +221,7 @@ $chartPointIds = array_values(array_filter(array_map(
         .status.stale { color: #8a4b00; }
         .status.stale::before { background: #d97706; }
         .debug { margin-top: .6rem; font-size: .85rem; font-weight: normal; overflow-wrap: anywhere; }
+        .debug summary { cursor: pointer; }
         .debug ul { padding: 0; margin: .25rem 0 0; list-style: none; }
         .important-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .5rem 1rem; }
         .important-item { min-width: 0; padding: .55rem .7rem; background: #f3f6f8; border-radius: .4rem; }
