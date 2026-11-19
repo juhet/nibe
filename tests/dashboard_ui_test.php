@@ -73,10 +73,11 @@ try {
     restore_error_handler();
 
     $unavailable = substr_count($html, '<strong>Niet beschikbaar</strong>');
-    $debugBlocks = preg_match_all('/<strong>Niet beschikbaar<\/strong>\s*<div class="debug">/', $html);
+    $debugBlocks = preg_match_all('/<strong>Niet beschikbaar<\/strong>\s*<details class="debug"><summary>Toelichting<\/summary>/', $html);
     if ($unavailable === 0 || $debugBlocks !== $unavailable
-        || substr_count($html, '<div class="debug">') !== $unavailable) {
-        throw new RuntimeException('Each unavailable KPI must have exactly one debug block; available KPIs must have none.');
+        || substr_count($html, '<details class="debug"><summary>Toelichting</summary>') !== $unavailable
+        || preg_match_all('/<details\b[^>]*class="debug"[^>]*>/', $html) !== $unavailable) {
+        throw new RuntimeException('Each unavailable KPI must have exactly one collapsed debug disclosure; available KPIs must have none.');
     }
     if (!str_contains($html, 'kw&lt;script&gt;') || str_contains($html, 'kw<script>')) {
         throw new RuntimeException('Debug output must escape measurement units.');
