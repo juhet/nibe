@@ -47,6 +47,120 @@ function nibe_dashboard_point_name(array $point): string
     ][(string) ($point['source_point_id'] ?? '')] ?? (string) ($point['name'] ?? '');
 }
 
+function nibe_dashboard_kpis(
+    array $observations,
+    string $supplyUnit,
+    string $returnUnit,
+    DateTimeImmutable $now
+): array {
+    $now = $now->setTimezone(new DateTimeZone('UTC'));
+    $start = $now->getTimestamp() - 86400;
+    $samples = [];
+    foreach (['frequency', 'supply', 'return'] as $role) {
+        foreach ($observations[$role] ?? [] as $observation) {
+            $rawValue = $observation['raw_value'] ?? null;
+            $timestamp = $observation['source_timestamp'] ?? $observation['collected_at'] ?? null;
+            if (!is_string($rawValue) || !is_numeric($rawValue) || !is_string($timestamp)) {
+                continue;
+            }
+
+            try {
+                $time = (new DateTimeImmutable($timestamp, new DateTimeZone('UTC')))->getTimestamp();
+            } catch (Exception $exception) {
+                continue;
+            }
+            $value = (float) $rawValue;
+            if (!is_finite($value) || $time > $now->getTimestamp()) {
+                continue;
+            }
+            $samples[$role][] = ['time' => $time, 'value' => $value];
+        }
+        $samples[$role] ??= [];
+        usort($samples[$role], static fn (array $left, array $right): int => $left['time'] <=> $right['time']);
+    }
+
+    $deltaT = null;
+    $normalizeUnit = static fn (string $unit): string => match (strtolower(trim($unit))) {
+        'c', 'celsius', '°c' => '°c',
+        default => strtolower(trim($unit)),
+    };
+    if ($supplyUnit !== '' && $normalizeUnit($supplyUnit) === $normalizeUnit($returnUnit)) {
+        $supply = array_values(array_filter(
+            $samples['supply'],
+            static fn (array $sample): bool => $sample['time'] >= $start
+        ));
+        $return = array_values(array_filter(
+            $samples['return'],
+            static fn (array $sample): bool => $sample['time'] >= $start
+        ));
+        $usedReturns = [];
+        $differences = [];
+        foreach ($supply as $supplySample) {
+            $nearest = null;
+            $nearestDistance = 301;
+            foreach ($return as $index => $returnSample) {
+                if (isset($usedReturns[$index])) {
+                    continue;
+                }
+                $distance = abs($supplySample['time'] - $returnSample['time']);
+                if ($distance < $nearestDistance) {
+                    $nearest = $index;
+                    $nearestDistance = $distance;
+                }
+            }
+            if ($nearest !== null && $nearestDistance <= 300) {
+                $usedReturns[$nearest] = true;
+                $differences[] = $supplySample['value'] - $return[$nearest]['value'];
+            }
+        }
+        if ($differences !== []) {
+            $deltaT = array_sum($differences) / count($differences);
+        }
+    }
+
+    $frequencySamples = $samples['frequency'];
+    $recentFrequencySamples = array_values(array_filter(
+        $frequencySamples,
+        static fn (array $sample): bool => $sample['time'] >= $start
+    ));
+    $compressorStarts = null;
+    $averageRunSeconds = null;
+    if (count($recentFrequencySamples) >= 2) {
+        $compressorStarts = 0;
+        $runs = [];
+        $previousRunning = null;
+        $runStart = null;
+        $previousTime = null;
+        foreach ($frequencySamples as $sample) {
+            $running = $sample['value'] > 0;
+            if ($previousTime !== null && $sample['time'] - $previousTime > 3600) {
+                $previousRunning = null;
+                $runStart = null;
+            }
+            if ($sample['time'] >= $start && $previousRunning === false && $running) {
+                $compressorStarts++;
+                $runStart = $sample['time'];
+            } elseif ($previousRunning === true && !$running && $runStart !== null) {
+                if ($sample['time'] >= $start) {
+                    $runs[] = $sample['time'] - $runStart;
+                }
+                $runStart = null;
+            }
+            $previousRunning = $running;
+            $previousTime = $sample['time'];
+        }
+        if ($runs !== []) {
+            $averageRunSeconds = array_sum($runs) / count($runs);
+        }
+    }
+
+    return [
+        'compressor_starts' => $compressorStarts,
+        'average_delta_t' => $deltaT,
+        'average_run_seconds' => $averageRunSeconds,
+    ];
+}
+
 function nibe_dashboard_history_request(array $query): ?array
 {
     $ids = $query['points'] ?? null;

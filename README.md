@@ -1,8 +1,9 @@
 # NIBE-dashboard
 
 Een alleen-lezen dashboard uit [DESIGN.txt](DESIGN.txt). De pagina toont
-verbindingsstatus, instelbare belangrijke meetpunten en een uitklapbaar
-overzicht van alle ontdekte meetpunten met hun laatst opgeslagen waarden.
+verbindingsstatus, de vaste belangrijkste meetpunten en kerncijfers over de
+compressor en temperatuurverschillen, plus een uitklapbaar overzicht van alle
+ontdekte meetpunten met hun laatst opgeslagen waarden.
 De afzonderlijke gegevensverzamelaar ontdekt systemen en meetpunten via
 myUplink en slaat hun actuele waarden op. De pagina start zelf geen verzameling
 en vult ontbrekende metingen niet aan met verzonnen waarden.
@@ -87,34 +88,40 @@ naar de eigen database en wijzigt geen warmtepompinstellingen.
 Na het importeren van het schema en het instellen van de databasevariabelen
 opent de startpagina. Zonder opgeslagen meetpunten toont de pagina dat er nog
 geen gegevens zijn. Na een geslaagde collector-aanroep toont zij de ontdekte
-meetpunten en laatste waarden. Meetpunten waarvan de bron- of verzameltijd
-meer dan 24 uur oud is, worden als verouderd aangeduid. Een oude brontijd
-kan ook een ongewijzigde waarde betekenen; het is geen bewijs dat de verbinding
-uitgevallen is. Bij
+meetpunten en laatste waarden. Meetpunten waarvan de bron- of verzameltijd meer
+dan 24 uur oud is, worden als verouderd aangeduid; ontbrekende waarden worden
+als leeg weergegeven. Een oude brontijd kan ook een ongewijzigde waarde
+betekenen; het is geen bewijs dat de verbinding uitgevallen is. Bij
 ontbrekende of onbereikbare databaseconfiguratie wordt een algemene melding
 getoond; technische foutdetails of inloggegevens worden niet in de pagina
-weergegeven. Waarden worden als aangeleverd getoond en alle tijden zijn UTC.
+weergegeven. Waarden worden als aangeleverd getoond. Tijden worden in de
+tijdzone van de browser weergegeven; databaseopslag en de interne API gebruiken
+UTC.
 
-Onder **Belangrijkste metingen** worden de acht bekende meetpunten voor het
-opgegeven myUplink-apparaat automatisch aan hun rollen gekoppeld op basis van
-apparaat-ID en bronpunt-ID. Als een meetpunt ontbreekt, blijft de rol niet
-ingesteld; er worden geen waarden verzonnen. Rollen kunnen desgewenst worden
-aangepast, waarbij keuzes alleen in de lokale browser worden bewaard. De
-standaardgrafieken tonen de beschikbare gekoppelde meetpunten direct na het
-laden en verdelen ze over afzonderlijke grafieken per eenheid.
+Onder **Belangrijkste metingen** worden de bekende meetpunten voor het
+opgegeven myUplink-apparaat automatisch gekoppeld op basis van apparaat-ID en
+bronpunt-ID. Ontbrekende metingen blijven leeg; er worden geen waarden
+verzonnen. De KPI's tonen compressorstarts afgeleid van waargenomen overgangen
+van nul naar een positieve compressorfrequentie, het gemiddelde verschil tussen
+aanvoer en retour voor metingen die maximaal vijf minuten uit elkaar liggen en
+de gemiddelde duur van afgeronde compressorritten. Delta T wordt alleen
+getoond als de temperaturen dezelfde eenheid hebben; zonder voldoende gegevens
+blijft een KPI leeg.
 
-Onder **Metingen vergelijken** kunnen maximaal acht meetpunten samen worden
-geselecteerd (Ctrl of ⌘ voor meerdere), ook buiten de ingestelde rollen.
-Kies 24 uur, 7 dagen, 30 dagen of een eigen periode van maximaal 30 dagen
-in UTC en klik op **Toon grafiek**. De grafiek gebruikt de brontijd, of
-de verzameltijd als de brontijd ontbreekt. Elke eenheid heeft een eigen
+Onder **Metingen vergelijken** worden de beschikbare standaardtemperaturen
+getoond: tapwater, berekende toevoer, aanvoer, retour, temperatuur in huis en
+buitentemperatuur. Kies 4 uur, 24 uur, 7 dagen, 30 dagen of een eigen periode
+van maximaal 30 dagen in de lokale tijdzone en klik op **Toon grafiek**. De
+grafiek gebruikt de brontijd, of de verzameltijd als de brontijd ontbreekt.
+Elke eenheid heeft een eigen
 grafiek met dezelfde tijdas en logische verdelingen op de y-as. Reeksen zijn
 standaard met een lijn verbonden; de legenda schakelt zowel de lijn als de
 meetpunten in of uit. Wijs de grafiek aan of selecteer een punt met Tab om
 alle reeksen op dat tijdstip te vergelijken. Als een reeks daar geen exacte
 meting heeft, wordt een lineaire schatting tussen waarnemingen getoond en
-duidelijk als schatting aangeduid; buiten waarnemingen of over gaten van meer
-dan 24 uur wordt geen waarde geschat. Lijnen zijn geen extra metingen.
+duidelijk als schatting aangeduid; waarden staan onder elkaar in vaste,
+logische volgorde. Buiten waarnemingen of over gaten van meer dan 24 uur wordt
+geen waarde geschat. Lijnen zijn geen extra metingen.
 Er worden maximaal 3000 recentste waarnemingen per meetpunt getoond; bij
 afkapping verschijnt een waarschuwing. Historie is alleen beschikbaar vanaf
 de eigen verzameling en wordt niet bij myUplink aangevuld.
