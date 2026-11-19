@@ -21,12 +21,38 @@
     const startInput = document.getElementById('chart-start');
     const endInput = document.getElementById('chart-end');
     const message = document.getElementById('chart-message');
+    const zoomIn = document.getElementById('chart-zoom-in');
+    const zoomOut = document.getElementById('chart-zoom-out');
     const colors = ['#087f8c', '#c14953', '#7156a5', '#b36b00', '#2865a3', '#47813c', '#8a4c7d', '#527b8b'];
     let requestNumber = 0;
+    let currentRange = null;
 
     period.addEventListener('change', () => {
         startInput.disabled = endInput.disabled = period.value !== 'custom';
     });
+
+    function zoom(factor) {
+        if (currentRange === null) {
+            document.getElementById('chart-show').click();
+            return;
+        }
+        const center = (currentRange.start + currentRange.end) / 2;
+        const duration = Math.max(5 * 60 * 1000, Math.min(30 * 86400000,
+            (currentRange.end - currentRange.start) * factor));
+        currentRange = {start: center - duration / 2, end: center + duration / 2};
+        const localInputValue = timestamp => {
+            const date = new Date(timestamp - new Date(timestamp).getTimezoneOffset() * 60000);
+            return date.toISOString().slice(0, 16);
+        };
+        period.value = 'custom';
+        startInput.disabled = endInput.disabled = false;
+        startInput.value = localInputValue(currentRange.start);
+        endInput.value = localInputValue(currentRange.end);
+        document.getElementById('chart-show').click();
+    }
+
+    zoomIn.addEventListener('click', () => zoom(0.5));
+    zoomOut.addEventListener('click', () => zoom(2));
 
     const svgNS = 'http://www.w3.org/2000/svg';
     function element(name, attributes = {}, text = null) {
@@ -187,6 +213,7 @@
             message.textContent = 'Kies een geldige periode van maximaal 30 dagen.';
             return;
         }
+        currentRange = {start, end};
         const startSeconds = Math.floor(start / 1000), endSeconds = Math.floor(end / 1000);
         message.textContent = 'Historie laden…';
         try {

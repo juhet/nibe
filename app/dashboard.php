@@ -12,17 +12,20 @@ function nibe_dashboard_default_role_mapping(array $measurements): array
         'calculated_supply' => '43009',
         'supply' => '44058',
         'return' => '44055',
-        'electric_power' => '32486',
+        'electric_power' => ['32486', '13'],
+        'heat_power' => '598',
         'defrost' => '44703',
     ];
     $mapping = [];
 
-    foreach ($sourcePointIds as $role => $sourcePointId) {
-        foreach ($measurements as $measurement) {
-            if ((string) ($measurement['source_device_id'] ?? '') === $deviceId
-                && (string) ($measurement['source_point_id'] ?? '') === $sourcePointId) {
-                $mapping[$role] = (string) $measurement['measurement_point_id'];
-                break;
+    foreach ($sourcePointIds as $role => $candidates) {
+        foreach ((array) $candidates as $sourcePointId) {
+            foreach ($measurements as $measurement) {
+                if ((string) ($measurement['source_device_id'] ?? '') === $deviceId
+                    && (string) ($measurement['source_point_id'] ?? '') === $sourcePointId) {
+                    $mapping[$role] = (string) $measurement['measurement_point_id'];
+                    break 2;
+                }
             }
         }
     }
@@ -127,7 +130,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             'wh' => 0.001,
             default => null,
         };
-        foreach (['today', '7d', '30d'] as $period) {
+        foreach (['today', '24h', '7d', '30d'] as $period) {
             $start = $windows[$period];
             $inPeriod = array_values(array_filter(
                 $samples[$role],
@@ -157,48 +160,36 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             default => null,
         };
     };
-    $copSamples = [];
-    $usedElectricSamples = [];
-    $electricStart = 0;
-    foreach ($samples['heat_power'] as $heat) {
-        $nearest = null;
-        $distance = 301;
-        while (isset($samples['electric_power'][$electricStart])
-            && $samples['electric_power'][$electricStart]['time'] < $heat['time'] - 300) {
-            $electricStart++;
-        }
-        for ($index = $electricStart; $index < count($samples['electric_power']); $index++) {
-            $electric = $samples['electric_power'][$index];
-            if ($electric['time'] > $heat['time'] + 300) {
-                break;
-            }
-            if (isset($usedElectricSamples[$index])) {
-                continue;
-            }
-            $candidateDistance = abs($heat['time'] - $electric['time']);
-            if ($candidateDistance < $distance) {
-                $nearest = $index;
-                $distance = $candidateDistance;
-            }
-        }
-        if ($nearest === null || $distance > 300) {
+    $integratedPower = [];
+    foreach ($windows as $period => $_start) {
+        $integratedPower[$period] = ['electricity' => null, 'heat' => null];
+    }
+    foreach (['electric_power' => 'electricity', 'heat_power' => 'heat'] as $role => $metric) {
+        $unit = strtolower(trim((string) ($units[$role] ?? '')));
+        if (!in_array($unit, ['w', 'watts', 'kw', 'kilowatts'], true)) {
             continue;
         }
-        $heatKw = $powerToKw($heat['value'], (string) ($units['heat_power'] ?? ''));
-        $electricKw = $powerToKw($samples['electric_power'][$nearest]['value'], (string) ($units['electric_power'] ?? ''));
-        if ($heatKw !== null && $electricKw !== null && $heatKw >= 0 && $electricKw > 0) {
-            $copSamples[] = ['time' => $heat['time'], 'value' => $heatKw / $electricKw];
-            $usedElectricSamples[$nearest] = true;
+        foreach ($windows as $period => $start) {
+            $periodSamples = array_values(array_filter(
+                $samples[$role],
+                static fn (array $sample): bool => $sample['time'] >= $start
+            ));
+            if ($periodSamples === []) {
+                continue;
+            }
+            $integratedPower[$period][$metric] = array_sum(array_map(
+                static fn (array $sample): float => max(0, $powerToKw($sample['value'], $unit) ?? 0) * 5 / 60,
+                $periodSamples
+            ));
+            $emptyPeriods[$period][$metric] = $integratedPower[$period][$metric];
+        }
+    }
+    foreach ($integratedPower as $period => $energy) {
+        if ($energy['electricity'] !== null && $energy['electricity'] > 0 && $energy['heat'] !== null) {
+            $emptyPeriods[$period]['cop'] = $energy['heat'] / $energy['electricity'];
         }
     }
     foreach ($windows as $period => $start) {
-        $periodCop = array_values(array_filter(
-            $copSamples,
-            static fn (array $sample): bool => $sample['time'] >= $start
-        ));
-        if ($periodCop !== []) {
-            $emptyPeriods[$period]['cop'] = array_sum(array_column($periodCop, 'value')) / count($periodCop);
-        }
         $supply = array_values(array_filter($samples['supply'], static fn (array $sample): bool => $sample['time'] >= $start));
         $return = array_values(array_filter($samples['return'], static fn (array $sample): bool => $sample['time'] >= $start));
         $supplyUnit = strtolower(trim((string) ($units['supply'] ?? '')));
@@ -255,11 +246,19 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
     }
 
     $runs = [];
-    $starts = 0;
+    $starts = ['24h' => 0, '7d' => 0];
     $runStart = null;
     $lastFrequency = null;
-    $frequencySeconds = ['20-30' => 0, '30-40' => 0, '40-50' => 0, '50-60' => 0, '60+' => 0];
-    $runningSeconds = 0;
+    $frequencySeconds = [
+        '0' => 0,
+        '1-20' => 0,
+        '20-30' => 0,
+        '30-40' => 0,
+        '40-50' => 0,
+        '50-60' => 0,
+        '60+' => 0,
+    ];
+    $observedFrequencySeconds = 0;
     foreach ($samples['frequency'] as $index => $sample) {
         $next = $samples['frequency'][$index + 1] ?? null;
         if ($next === null || $next['time'] - $sample['time'] <= 0 || $next['time'] - $sample['time'] > 3600) {
@@ -271,8 +270,14 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             continue;
         }
         $running = $sample['value'] > 0;
+        if ($running && $lastFrequency === false) {
+            foreach (['24h', '7d'] as $period) {
+                if ($sample['time'] >= $windows[$period]) {
+                    $starts[$period]++;
+                }
+            }
+        }
         if ($sample['time'] >= $windows['24h'] && $running && $lastFrequency === false) {
-            $starts++;
             $runStart = $sample['time'];
         } elseif ($sample['time'] < $windows['24h'] && $running && $lastFrequency === false) {
             $runStart = $sample['time'];
@@ -283,19 +288,20 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             }
             $runStart = null;
         }
-        if ($running && $next['time'] > $windows['24h']) {
+        if ($next['time'] > $windows['24h']) {
             $segmentStart = max($sample['time'], $windows['24h']);
             $duration = max(0, min($next['time'], $nowTimestamp) - $segmentStart);
-            $runningSeconds += $duration;
-            $band = match (true) {
+            $band = $sample['value'] < 0 ? null : ($sample['value'] === 0.0 ? '0' : match (true) {
                 $sample['value'] >= 60 => '60+',
                 $sample['value'] >= 50 => '50-60',
                 $sample['value'] >= 40 => '40-50',
                 $sample['value'] >= 30 => '30-40',
                 $sample['value'] >= 20 => '20-30',
+                $sample['value'] > 0 => '1-20',
                 default => null,
-            };
+            });
             if ($band !== null) {
+                $observedFrequencySeconds += $duration;
                 $frequencySeconds[$band] += $duration;
             }
         }
@@ -303,26 +309,35 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
     }
     $runLengths = array_values(array_filter($runs, static fn (int $duration): bool => $duration > 0));
 
-    $frequencyBaseline = null;
-    foreach ($samples['frequency'] as $sample) {
-        if ($sample['time'] < $windows['24h']
-            && ($frequencyBaseline === null || $sample['time'] > $frequencyBaseline['time'])) {
-            $frequencyBaseline = $sample;
+    $frequencyWindowValid = [];
+    foreach (['24h', '7d'] as $period) {
+        $frequencyBaseline = null;
+        foreach ($samples['frequency'] as $sample) {
+            if ($sample['time'] < $windows[$period]
+                && ($frequencyBaseline === null || $sample['time'] > $frequencyBaseline['time'])) {
+                $frequencyBaseline = $sample;
+            }
         }
+        $periodSamples = array_filter(
+            $samples['frequency'],
+            static fn (array $sample): bool => $sample['time'] >= $windows[$period]
+        );
+        $latestFrequency = $samples['frequency'] === [] ? null : end($samples['frequency']);
+        $frequencyWindowValid[$period] = count($periodSamples) >= 2
+            && $frequencyBaseline !== null
+            && $windows[$period] - $frequencyBaseline['time'] <= 21600
+            && $latestFrequency !== null
+            && $nowTimestamp - $latestFrequency['time'] <= 21600;
     }
-    $latestFrequency = $samples['frequency'] === [] ? null : end($samples['frequency']);
-    $hasRecentFrequency = count(array_filter(
-        $samples['frequency'],
-        static fn (array $sample): bool => $sample['time'] >= $windows['24h']
-    )) >= 2 && $latestFrequency !== null && $nowTimestamp - $latestFrequency['time'] <= 21600;
-    $hasFrequencyBaseline = $frequencyBaseline !== null
-        && $windows['24h'] - $frequencyBaseline['time'] <= 21600;
     $defrostPeriods = [];
     foreach (['24h', '7d', '30d'] as $period) {
         $start = $windows[$period];
         $defrostStarts = 0;
         $defrostStartTimes = [];
         $defrostSeconds = 0;
+        $defrostDurations = [];
+        $activeDefrostStart = null;
+        $activeDefrostSeconds = 0;
         $periodRunningSeconds = 0;
         $previousDefrost = null;
         $defrostBaseline = null;
@@ -337,6 +352,8 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             $next = $samples['defrost'][$index + 1] ?? null;
             if ($next === null || $next['time'] <= $sample['time'] || $next['time'] - $sample['time'] > 3600) {
                 $previousDefrost = null;
+                $activeDefrostStart = null;
+                $activeDefrostSeconds = 0;
                 continue;
             }
             $active = $sample['value'] > 0;
@@ -344,8 +361,22 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
                 $defrostStarts++;
                 $defrostStartTimes[] = $sample['time'];
             }
+            if ($active && $previousDefrost === false) {
+                $activeDefrostStart = $sample['time'];
+                $activeDefrostSeconds = 0;
+            }
             if ($active && $next['time'] > $start) {
                 $defrostSeconds += max(0, min($next['time'], $nowTimestamp) - max($sample['time'], $start));
+            }
+            if ($active && $activeDefrostStart !== null) {
+                $activeDefrostSeconds += $next['time'] - $sample['time'];
+                if ($next['value'] <= 0) {
+                    if ($activeDefrostStart >= $start) {
+                        $defrostDurations[] = $activeDefrostSeconds;
+                    }
+                    $activeDefrostStart = null;
+                    $activeDefrostSeconds = 0;
+                }
             }
             $previousDefrost = $active;
         }
@@ -364,6 +395,9 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         $defrostPeriods[$period] = [
             'count' => $hasPeriodData ? $defrostStarts : null,
             'seconds' => $hasPeriodData ? $defrostSeconds : null,
+            'average_duration_seconds' => $hasPeriodData && $defrostDurations !== []
+                ? array_sum($defrostDurations) / count($defrostDurations)
+                : null,
             'average_interval_seconds' => $hasPeriodData && count($defrostStartTimes) >= 2
                 ? (max($defrostStartTimes) - min($defrostStartTimes)) / (count($defrostStartTimes) - 1)
                 : null,
@@ -373,28 +407,58 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         ];
     }
 
-    $latestCop = $copSamples === [] ? null : end($copSamples)['value'];
-    $latestCop = $latestCop !== null && end($copSamples)['time'] >= $nowTimestamp - 900 ? $latestCop : null;
+    $latestHeatPower = $samples['heat_power'] === [] ? null : end($samples['heat_power']);
+    $latestElectricPower = $samples['electric_power'] === [] ? null : end($samples['electric_power']);
+    $latestCopTime = $latestHeatPower === null || $latestElectricPower === null
+        ? null
+        : max($latestHeatPower['time'], $latestElectricPower['time']);
+    $latestHeatKw = $latestHeatPower === null ? null : $powerToKw(
+        $latestHeatPower['value'],
+        (string) ($units['heat_power'] ?? '')
+    );
+    $latestElectricKw = $latestElectricPower === null ? null : $powerToKw(
+        $latestElectricPower['value'],
+        (string) ($units['electric_power'] ?? '')
+    );
+    $latestCop = $latestHeatPower !== null && $latestElectricPower !== null
+        && $nowTimestamp - $latestHeatPower['time'] <= 900
+        && $nowTimestamp - $latestElectricPower['time'] <= 900
+        && $latestHeatKw !== null && $latestHeatKw >= 0
+        && $latestElectricKw !== null && $latestElectricKw > 0
+        ? $latestHeatKw / $latestElectricKw
+        : null;
     $averageCop24h = $emptyPeriods['24h']['cop'];
-    $copWarning = $latestCop !== null && $averageCop24h !== null && count(array_filter(
-        $copSamples,
+    $recentHeatPowerCount = count(array_filter(
+        $samples['heat_power'],
         static fn (array $sample): bool => $sample['time'] >= $windows['24h']
-    )) >= 3 && abs($latestCop - $averageCop24h) > abs($averageCop24h) * 0.2;
+    ));
+    $recentElectricPowerCount = count(array_filter(
+        $samples['electric_power'],
+        static fn (array $sample): bool => $sample['time'] >= $windows['24h']
+    ));
+    $copWarning = $latestCop !== null && $averageCop24h !== null
+        && $recentHeatPowerCount >= 3 && $recentElectricPowerCount >= 3
+        && abs($latestCop - $averageCop24h) > abs($averageCop24h) * 0.2;
     $frequencyDistribution = [];
     foreach ($frequencySeconds as $band => $seconds) {
-        $frequencyDistribution[$band] = $runningSeconds > 0 ? 100 * $seconds / $runningSeconds : null;
+        $frequencyDistribution[$band] = $observedFrequencySeconds > 0 && $frequencyWindowValid['24h']
+            ? 100 * $seconds / $observedFrequencySeconds
+            : null;
     }
 
     return [
         'periods' => $emptyPeriods,
         'cop_now' => $latestCop,
+        'cop_now_timestamp' => $latestCop !== null ? gmdate('Y-m-d H:i:s', $latestCopTime) : null,
         'cop_warning' => $copWarning,
         'delta_t_now' => $deltaTNow,
-        'compressor_starts' => $hasRecentFrequency && $hasFrequencyBaseline ? $starts : null,
+        'compressor_starts' => $frequencyWindowValid['24h'] ? $starts['24h'] : null,
+        'compressor_starts_7d' => $frequencyWindowValid['7d'] ? $starts['7d'] : null,
         'average_run_seconds' => $runLengths === [] ? null : array_sum($runLengths) / count($runLengths),
         'longest_run_seconds' => $runLengths === [] ? null : max($runLengths),
         'shortest_run_seconds' => $runLengths === [] ? null : min($runLengths),
         'frequency_distribution' => $frequencyDistribution,
+        'frequency_seconds' => $frequencySeconds,
         'defrost_periods' => $defrostPeriods,
     ];
 }
