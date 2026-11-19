@@ -52,7 +52,7 @@
     }
 
     document.getElementById('chart-use-roles').addEventListener('click', () => {
-        const chosen = [...new Set(roles.map(role => role.value).filter(Boolean))].slice(0, 6);
+        const chosen = [...new Set(roles.map(role => role.value).filter(Boolean))].slice(0, 8);
         for (const option of points.options) option.selected = chosen.includes(option.value);
         message.textContent = chosen.length ? 'Meetpunten geselecteerd. Kies een periode en toon de grafiek.' : 'Stel eerst metingen in.';
     });
@@ -135,8 +135,8 @@
         const ids = [...points.selectedOptions].map(option => option.value);
         charts.replaceChildren();
         const currentRequest = ++requestNumber;
-        if (!ids.length || ids.length > 6) {
-            message.textContent = 'Selecteer één tot zes meetpunten.';
+        if (!ids.length || ids.length > 8) {
+            message.textContent = 'Selecteer één tot acht meetpunten.';
             return;
         }
         const end = period.value === 'custom' ? utcTime(endInput.value) : Date.now();
@@ -182,4 +182,5 @@
             if (currentRequest === requestNumber) message.textContent = error.message || 'Historie is niet beschikbaar.';
         }
     });
+    document.getElementById('chart-show').click();
 })();

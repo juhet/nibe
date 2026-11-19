@@ -15,7 +15,7 @@ $databaseReady = true;
 try {
     $database = nibe_database();
     $query = <<<'SQL'
-        SELECT d.display_name AS device_name, p.name, p.unit, p.source_point_id, o.raw_value,
+        SELECT d.display_name AS device_name, d.source_device_id, p.name, p.unit, p.source_point_id, o.raw_value,
                p.id AS measurement_point_id, o.source_timestamp, o.collected_at
         FROM nibe_measurement_points p
         INNER JOIN nibe_devices d ON d.id = p.device_id
@@ -32,6 +32,7 @@ try {
     $statement = $database->prepare($query);
     $statement->execute();
     $measurements = $statement->fetchAll();
+    $defaultRoleMapping = nibe_dashboard_default_role_mapping($measurements);
 
     $connectionStatement = $database->prepare(
         'SELECT source, authorization_status, last_success_at
@@ -124,7 +125,7 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         <p class="muted">Verouderd betekent dat de brontijd (of, als die ontbreekt, de verzameltijd) meer dan 24 uur oud is. Een oude brontijd kan ook betekenen dat een waarde niet is gewijzigd.</p>
         <section class="panel" aria-labelledby="important-title">
             <h2 id="important-title">Belangrijkste metingen</h2>
-            <p class="muted">Kies per onderdeel het juiste meetpunt. Keuzes worden alleen in deze browser bewaard. Controleer bij gelijke namen het apparaat en de bron-ID.</p>
+            <p class="muted">Bekende meetpunten worden automatisch gekoppeld. Je kunt de rollen aanpassen; keuzes worden alleen in deze browser bewaard.</p>
             <div class="roles">
                 <?php foreach ([
                     'indoor' => 'Temperatuur in huis',
@@ -139,12 +140,14 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
                     'starts' => 'Aantal starts',
                     'auxiliary' => 'Bijverwarming elektrisch element',
                 ] as $role => $label): ?>
+                    <?php $defaultPointId = $defaultRoleMapping[$role] ?? null; ?>
                     <div class="role">
                         <label for="role-<?= nibe_escape($role) ?>"><?= nibe_escape($label) ?></label>
                         <select id="role-<?= nibe_escape($role) ?>" class="role-select" data-role="<?= nibe_escape($role) ?>">
                             <option value="">Niet ingesteld</option>
                             <?php foreach ($measurements as $measurement): ?>
                                 <option value="<?= nibe_escape((string) $measurement['measurement_point_id']) ?>"
+                                    <?= (string) $measurement['measurement_point_id'] === $defaultPointId ? 'selected' : '' ?>
                                     data-value="<?= nibe_escape($measurement['raw_value']) ?>"
                                     data-has-value="<?= $measurement['raw_value'] === null ? '0' : '1' ?>"
                                     data-unit="<?= nibe_escape($measurement['unit']) ?>"
@@ -162,14 +165,17 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         </section>
         <section class="panel" aria-labelledby="chart-title">
             <h2 id="chart-title">Metingen vergelijken</h2>
-            <p class="muted">Selecteer maximaal zes meetpunten (Ctrl of ⌘ voor meerdere). Verschillende eenheden krijgen een eigen grafiek met dezelfde tijdas. Lijnen zijn slechts een visuele verbinding, geen extra metingen. Zet bij statuscodes en tellers geen lijn aan.</p>
+            <p class="muted">De beschikbare standaardmeetpunten worden automatisch getoond; je kunt maximaal acht meetpunten kiezen (Ctrl of ⌘ voor meerdere). Verschillende eenheden krijgen een eigen grafiek met dezelfde tijdas. Lijnen zijn slechts een visuele verbinding, geen extra metingen. Zet bij statuscodes en tellers geen lijn aan.</p>
             <label for="chart-points">Meetpunten</label>
             <select id="chart-points" class="point-select" multiple>
                 <?php foreach ($measurements as $measurement): ?>
-                    <option value="<?= nibe_escape((string) $measurement['measurement_point_id']) ?>"><?= nibe_escape($measurement['name'] . ' — ' . $measurement['device_name'] . ' [' . $measurement['source_point_id'] . ']') ?></option>
+                    <option value="<?= nibe_escape((string) $measurement['measurement_point_id']) ?>"
+                        <?= in_array((string) $measurement['measurement_point_id'], array_values($defaultRoleMapping), true) ? 'selected' : '' ?>>
+                        <?= nibe_escape($measurement['name'] . ' — ' . $measurement['device_name'] . ' [' . $measurement['source_point_id'] . ']') ?>
+                    </option>
                 <?php endforeach; ?>
             </select>
-            <p><button type="button" id="chart-use-roles">Gebruik eerste zes ingestelde metingen</button></p>
+            <p><button type="button" id="chart-use-roles">Gebruik ingestelde metingen</button></p>
             <div class="controls">
                 <label>Periode
                     <select id="chart-period">
