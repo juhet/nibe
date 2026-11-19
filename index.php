@@ -8,6 +8,19 @@ function nibe_escape(?string $value): string
     return htmlspecialchars($value ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+function nibe_debug(mixed $value, array $checks): string
+{
+    if ($value !== null) {
+        return '';
+    }
+
+    $html = '<div class="debug"><b>Debug:</b><ul>';
+    foreach ($checks as $check) {
+        $html .= '<li>' . ($check['ok'] ? '✓ ' : '✗ ') . nibe_escape($check['message']) . '</li>';
+    }
+    return $html . '</ul></div>';
+}
+
 $measurements = [];
 $connections = [];
 $defaultRoleMapping = [];
@@ -141,17 +154,26 @@ if (!is_string($selectedDefrostPeriod)
 }
 $selectedDefrostLabel = ['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'][$selectedDefrostPeriod];
 $currentHeatPower = null;
-if (isset($defaultRoleMapping['heat_power'], $measurementById[$defaultRoleMapping['heat_power']])) {
+$heatPowerDebug = [];
+$heatPowerMapped = isset($defaultRoleMapping['heat_power'], $measurementById[$defaultRoleMapping['heat_power']]);
+$heatPowerDebug[] = ['ok' => $heatPowerMapped, 'message' => 'Warmtevermogen gekoppeld'];
+if ($heatPowerMapped) {
     $heatPowerMeasurement = $measurementById[$defaultRoleMapping['heat_power']];
     $freshness = $heatPowerMeasurement['source_timestamp'] ?? $heatPowerMeasurement['collected_at'];
-    if (is_string($heatPowerMeasurement['raw_value']) && is_numeric($heatPowerMeasurement['raw_value'])
-        && is_string($freshness)) {
+    $numeric = is_string($heatPowerMeasurement['raw_value']) && is_numeric($heatPowerMeasurement['raw_value']);
+    $heatPowerDebug[] = ['ok' => $numeric, 'message' => 'Laatste verzamelde warmtevermogen is een numerieke string'];
+    $heatPowerDebug[] = ['ok' => is_string($freshness), 'message' => 'Bron- of verzameltijd gevonden'];
+    if (is_string($freshness)) {
         try {
             $freshnessTime = (new DateTimeImmutable($freshness, new DateTimeZone('UTC')))->getTimestamp();
-            if ($freshnessTime >= $now->getTimestamp() - 900 && $freshnessTime <= $now->getTimestamp()) {
+            $age = $now->getTimestamp() - $freshnessTime;
+            $fresh = $age >= 0 && $age <= 900;
+            $heatPowerDebug[] = ['ok' => $fresh, 'message' => 'Meting is ' . $age . ' seconden oud (tussen 0 en 900)'];
+            if ($numeric && $fresh) {
                 $currentHeatPower = $heatPowerMeasurement['raw_value'] . ' ' . ($roleUnits['heat_power'] ?? '');
             }
         } catch (Exception $exception) {
+            $heatPowerDebug[] = ['ok' => false, 'message' => 'Bron- of verzameltijd is ongeldig'];
             $currentHeatPower = null;
         }
     }
@@ -198,6 +220,8 @@ $chartPointIds = array_values(array_filter(array_map(
         .status.live::before { background: #188038; }
         .status.stale { color: #8a4b00; }
         .status.stale::before { background: #d97706; }
+        .debug { margin-top: .6rem; font-size: .85rem; font-weight: normal; overflow-wrap: anywhere; }
+        .debug ul { padding: 0; margin: .25rem 0 0; list-style: none; }
         .important-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .5rem 1rem; }
         .important-item { min-width: 0; padding: .55rem .7rem; background: #f3f6f8; border-radius: .4rem; }
         .important-item h3 { margin: 0; font-size: .9rem; }
@@ -289,15 +313,15 @@ $chartPointIds = array_values(array_filter(array_map(
             </div>
             <p class="muted">Compressor en warmteafgifte — afgelopen 24 uur</p>
             <div class="kpis">
-                <div class="kpi">Compressorstarts afgelopen 24 uur<strong><?= $performance['compressor_starts'] === null ? 'Niet beschikbaar' : nibe_escape((string) $performance['compressor_starts']) ?></strong></div>
-                <div class="kpi">Compressorstarts afgelopen 7 dagen<strong><?= $performance['compressor_starts_7d'] === null ? 'Niet beschikbaar' : nibe_escape((string) $performance['compressor_starts_7d']) ?></strong></div>
-                <div class="kpi">Gemiddelde runduur<strong><?= $performance['average_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['average_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
-                <div class="kpi">Langste runduur<strong><?= $performance['longest_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['longest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
-                <div class="kpi">Kortste runduur<strong><?= $performance['shortest_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['shortest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
-                <div class="kpi">ΔT nu<strong><?= $performance['delta_t_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['delta_t_now'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
-                <div class="kpi">Gemiddelde ΔT<strong><?= $performance['periods']['24h']['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['24h']['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
-                <div class="kpi">Gemiddelde ΔT afgelopen 7 dagen<strong><?= $performance['periods']['7d']['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['7d']['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
-                <div class="kpi">Warmtevermogen nu<strong><?= $currentHeatPower === null ? 'Niet beschikbaar' : nibe_escape($currentHeatPower) ?></strong></div>
+                <div class="kpi">Compressorstarts afgelopen 24 uur<strong><?= $performance['compressor_starts'] === null ? 'Niet beschikbaar' : nibe_escape((string) $performance['compressor_starts']) ?></strong><?= nibe_debug($performance['compressor_starts'], $performance['debug']['frequency']['24h']) ?></div>
+                <div class="kpi">Compressorstarts afgelopen 7 dagen<strong><?= $performance['compressor_starts_7d'] === null ? 'Niet beschikbaar' : nibe_escape((string) $performance['compressor_starts_7d']) ?></strong><?= nibe_debug($performance['compressor_starts_7d'], $performance['debug']['frequency']['7d']) ?></div>
+                <div class="kpi">Gemiddelde runduur<strong><?= $performance['average_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['average_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($performance['average_run_seconds'], $performance['debug']['runtime']) ?></div>
+                <div class="kpi">Langste runduur<strong><?= $performance['longest_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['longest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($performance['longest_run_seconds'], $performance['debug']['runtime']) ?></div>
+                <div class="kpi">Kortste runduur<strong><?= $performance['shortest_run_seconds'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['shortest_run_seconds'] / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($performance['shortest_run_seconds'], $performance['debug']['runtime']) ?></div>
+                <div class="kpi">ΔT nu<strong><?= $performance['delta_t_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['delta_t_now'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong><?= nibe_debug($performance['delta_t_now'], $performance['debug']['delta_t_now']) ?></div>
+                <div class="kpi">Gemiddelde ΔT<strong><?= $performance['periods']['24h']['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['24h']['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong><?= nibe_debug($performance['periods']['24h']['average_delta_t'], $performance['debug']['periods']['24h']['average_delta_t']) ?></div>
+                <div class="kpi">Gemiddelde ΔT afgelopen 7 dagen<strong><?= $performance['periods']['7d']['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['7d']['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong><?= nibe_debug($performance['periods']['7d']['average_delta_t'], $performance['debug']['periods']['7d']['average_delta_t']) ?></div>
+                <div class="kpi">Warmtevermogen nu<strong><?= $currentHeatPower === null ? 'Niet beschikbaar' : nibe_escape($currentHeatPower) ?></strong><?= nibe_debug($currentHeatPower, $heatPowerDebug) ?></div>
             </div>
             <p class="muted">ΔT nu vereist aanvoer en retour met dezelfde eenheid, maximaal 5 minuten tussen de brontijden en een recentste meting van maximaal 15 minuten oud. “Live” bij de meetpunten betekent minder dan 24 uur oud en is dus minder strikt.</p>
         </section>
@@ -306,30 +330,31 @@ $chartPointIds = array_values(array_filter(array_map(
             <h3>Efficiëntie (COP) en energie</h3>
             <div class="metric-grid" aria-label="COP">
                 <div class="metric">COP nu<strong><?= $performance['cop_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['cop_now'], 2, ',', '')) ?></strong>
+                    <?= nibe_debug($performance['cop_now'], $performance['debug']['cop_now']) ?>
                     <?php if ($performance['cop_now_timestamp'] !== null): ?>
                         <small>Meetmoment: <time class="local-time" datetime="<?= nibe_escape($performance['cop_now_timestamp']) ?>"><?= nibe_escape($performance['cop_now_timestamp']) ?> UTC</time></small>
                     <?php endif; ?>
                 </div>
-                <div class="metric">COP vandaag<strong><?= ($performance['periods']['today']['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['cop'], 2, ',', '')) ?></strong></div>
+                <div class="metric">COP vandaag<strong><?= ($performance['periods']['today']['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['cop'], 2, ',', '')) ?></strong><?= nibe_debug($performance['periods']['today']['cop'] ?? null, $performance['debug']['periods']['today']['cop']) ?></div>
                 <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
-                    <div class="metric">COP <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['cop'], 2, ',', '')) ?></strong></div>
+                    <div class="metric">COP <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['cop'], 2, ',', '')) ?></strong><?= nibe_debug($performance['periods'][$period]['cop'] ?? null, $performance['debug']['periods'][$period]['cop']) ?></div>
                 <?php endforeach; ?>
             </div>
             <?php if ($performance['cop_warning']): ?>
                 <p class="warning" role="status">COP nu wijkt meer dan 20% af van het gemiddelde van de afgelopen 24 uur.</p>
             <?php endif; ?>
             <div class="kpis">
-                <div class="kpi">Elektriciteit vandaag (UTC)<strong><?= ($performance['periods']['today']['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['electricity'], 2, ',', '') . ' kWh') ?></strong></div>
-                <div class="kpi">Warmte vandaag (UTC)<strong><?= ($performance['periods']['today']['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['heat'], 2, ',', '') . ' kWh') ?></strong></div>
+                <div class="kpi">Elektriciteit vandaag (UTC)<strong><?= ($performance['periods']['today']['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['electricity'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods']['today']['electricity'] ?? null, $performance['debug']['periods']['today']['electricity']) ?></div>
+                <div class="kpi">Warmte vandaag (UTC)<strong><?= ($performance['periods']['today']['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['heat'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods']['today']['heat'] ?? null, $performance['debug']['periods']['today']['heat']) ?></div>
                 <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
-                    <div class="kpi">Elektriciteit <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['electricity'], 2, ',', '') . ' kWh') ?></strong></div>
-                    <div class="kpi">Warmte <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['heat'], 2, ',', '') . ' kWh') ?></strong></div>
+                    <div class="kpi">Elektriciteit <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['electricity'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods'][$period]['electricity'] ?? null, $performance['debug']['periods'][$period]['electricity']) ?></div>
+                    <div class="kpi">Warmte <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['heat'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods'][$period]['heat'] ?? null, $performance['debug']['periods'][$period]['heat']) ?></div>
                 <?php endforeach; ?>
             </div>
             <h3>Compressorfrequentie — afgelopen 24 uur</h3>
             <div class="bands">
                 <?php foreach (['0' => '0 Hz', '1-20' => '1–20 Hz', '20-30' => '20–30 Hz', '30-40' => '30–40 Hz', '40-50' => '40–50 Hz', '50-60' => '50–60 Hz', '60+' => '60 Hz of hoger'] as $band => $label): ?>
-                    <div class="metric"><?= nibe_escape($label) ?><strong><?= ($performance['frequency_distribution'][$band] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['frequency_distribution'][$band], 1, ',', '') . '% · ' . number_format(($performance['frequency_seconds'][$band] ?? 0) / 60, 1, ',', '') . ' min') ?></strong></div>
+                    <div class="metric"><?= nibe_escape($label) ?><strong><?= ($performance['frequency_distribution'][$band] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['frequency_distribution'][$band], 1, ',', '') . '% · ' . number_format(($performance['frequency_seconds'][$band] ?? 0) / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($performance['frequency_distribution'][$band] ?? null, $performance['debug']['frequency_distribution']) ?></div>
                 <?php endforeach; ?>
             </div>
             <form method="get" class="controls">
@@ -345,11 +370,11 @@ $chartPointIds = array_values(array_filter(array_map(
             <?php $defrost = $performance['defrost_periods'][$selectedDefrostPeriod] ?? []; ?>
             <h3>Ontdooien — <?= nibe_escape($selectedDefrostLabel) ?></h3>
             <div class="metric-grid">
-                <div class="metric">Aantal<strong><?= ($defrost['count'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape((string) $defrost['count']) ?></strong></div>
-                <div class="metric">Totale duur<strong><?= ($defrost['seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
-                <div class="metric">Gemiddelde defrostduur<strong><?= ($defrost['average_duration_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_duration_seconds'] / 60, 1, ',', '') . ' min') ?></strong></div>
-                <div class="metric">Gemiddeld interval<strong><?= ($defrost['average_interval_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_interval_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong></div>
-                <div class="metric">Tijd tijdens draaien<strong><?= ($defrost['percent'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['percent'], 1, ',', '') . '%') ?></strong></div>
+                <div class="metric">Aantal<strong><?= ($defrost['count'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape((string) $defrost['count']) ?></strong><?= nibe_debug($defrost['count'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['count']) ?></div>
+                <div class="metric">Totale duur<strong><?= ($defrost['seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['seconds'] / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($defrost['seconds'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['seconds']) ?></div>
+                <div class="metric">Gemiddelde defrostduur<strong><?= ($defrost['average_duration_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_duration_seconds'] / 60, 1, ',', '') . ' min') ?></strong><?= nibe_debug($defrost['average_duration_seconds'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['average_duration_seconds']) ?></div>
+                <div class="metric">Gemiddeld interval<strong><?= ($defrost['average_interval_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_interval_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong><?= nibe_debug($defrost['average_interval_seconds'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['average_interval_seconds']) ?></div>
+                <div class="metric">Tijd tijdens draaien<strong><?= ($defrost['percent'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['percent'], 1, ',', '') . '%') ?></strong><?= nibe_debug($defrost['percent'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['percent']) ?></div>
             </div>
             <p class="muted">COP vereist elektrisch vermogen en warmtevermogen (W of kW) en een positief elektrisch vermogen. COP over een periode is de verhouding van de geïntegreerde warmte- en elektriciteitsenergie, met 5 minuten per opgeslagen meting. Voor COP nu moeten beide metingen maximaal 15 minuten oud zijn. Ontbrekende metingen worden niet aangevuld. Warmtevermogen kan niet uit temperaturen alleen worden bepaald.</p>
             <p class="muted">Energie wordt uit vermogensmetingen geïntegreerd met vijf minuten per opgeslagen meting. Als vermogens niet bruikbaar zijn, vereisen cumulatieve tellers in kWh of Wh een meting binnen 6 uur vóór de periode en een eindmeting van maximaal 6 uur oud; uurwaarden en jaarwaarden die periodiek worden gereset zijn niet geschikt. Ontdooicijfers vereisen een gekoppelde status, voldoende recente historie en een meting binnen 6 uur vóór de periode; het gemiddelde interval vereist minstens twee waargenomen starts.</p>

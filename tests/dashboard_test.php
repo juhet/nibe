@@ -269,6 +269,59 @@ $staleDefrost = nibe_dashboard_performance_metrics([
 expect_same(null, $staleDefrost['defrost_periods']['30d']['average_interval_seconds'],
     'stale defrost samples do not produce an average interval');
 
+$debugNow = new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC'));
+$debugMetrics = nibe_dashboard_performance_metrics([
+    'supply' => [['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:50:00']],
+    'return' => [['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:55:05']],
+    'electric_power' => [['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:45:00']],
+    'heat_power' => [['raw_value' => '3', 'source_timestamp' => '2026-01-02 11:44:59']],
+], ['supply' => '°C', 'return' => '°C', 'electric_power' => 'kW', 'heat_power' => 'kW'], $debugNow);
+expect_same(null, $debugMetrics['delta_t_now'], 'delta T rejects a 305-second gap');
+expect_same(true, in_array(['ok' => false, 'message' => 'Tijdsverschil: 305 seconden (maximaal 300)'],
+    $debugMetrics['debug']['delta_t_now'], true), 'delta T debug reports the exact failed gap');
+expect_same(null, $debugMetrics['cop_now'], 'COP rejects heat power older than 15 minutes');
+expect_same(true, in_array(['ok' => false, 'message' => 'Warmtevermogen: meting 901 seconden oud (maximaal 900)'],
+    $debugMetrics['debug']['cop_now'], true), 'COP debug reports the exact heat power age');
+expect_same(true, in_array(['ok' => true, 'message' => 'Elektrisch vermogen: meting 900 seconden oud (maximaal 900)'],
+    $debugMetrics['debug']['cop_now'], true), 'COP debug accepts the 15-minute boundary');
+
+$counterDebug = nibe_dashboard_performance_metrics([
+    'heat_energy' => [
+        ['raw_value' => '10', 'source_timestamp' => '2026-01-01 23:00:00'],
+        ['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:55:00'],
+    ],
+], ['heat_energy' => 'kWh'], $debugNow);
+expect_same(null, $counterDebug['periods']['today']['heat'], 'reset counter cannot supply energy');
+expect_same(true, in_array(['ok' => false, 'message' => 'Eindstand is niet lager dan beginstand (2 tegenover 10)'],
+    $counterDebug['debug']['periods']['today']['heat'], true), 'energy debug explains counter reset');
+
+$invalidDebug = nibe_dashboard_performance_metrics([
+    'electric_power' => [['raw_value' => 'not numeric', 'source_timestamp' => '2026-01-02 11:55:00']],
+], ['electric_power' => 'W'], $debugNow);
+expect_same(true, in_array(['ok' => false, 'message' => 'Elektrisch vermogen: waarde is geen numerieke string'],
+    $invalidDebug['debug']['cop_now'], true), 'debug explains why observations were rejected');
+
+$emptyDebug = nibe_dashboard_performance_metrics([], [], $debugNow);
+$unavailableChecks = [
+    $emptyDebug['debug']['cop_now'], $emptyDebug['debug']['delta_t_now'],
+    $emptyDebug['debug']['runtime'], $emptyDebug['debug']['frequency_distribution'],
+    $emptyDebug['debug']['frequency']['24h'], $emptyDebug['debug']['frequency']['7d'],
+];
+foreach (['today', '24h', '7d', '30d'] as $period) {
+    foreach (['cop', 'electricity', 'heat', 'average_delta_t'] as $metric) {
+        $unavailableChecks[] = $emptyDebug['debug']['periods'][$period][$metric];
+    }
+}
+foreach (['24h', '7d', '30d'] as $period) {
+    foreach (['count', 'seconds', 'average_duration_seconds', 'average_interval_seconds', 'percent'] as $metric) {
+        $unavailableChecks[] = $emptyDebug['debug']['defrost'][$period][$metric];
+    }
+}
+foreach ($unavailableChecks as $checks) {
+    expect_same(true, count(array_filter($checks, static fn (array $check): bool => !$check['ok'])) > 0,
+        'every unavailable metric has at least one failing debug check');
+}
+
 $request = nibe_dashboard_history_request(['points' => '1,22', 'start' => '100', 'end' => '200']);
 expect_same(['points' => ['1', '22'], 'start' => 100, 'end' => 200], $request, 'valid history request');
 expect_same(['1', '2', '3', '4', '5', '6', '7', '8'], nibe_dashboard_history_request([
