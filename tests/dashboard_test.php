@@ -69,6 +69,10 @@ expect_same(['electric_power' => '13', 'heat_power' => '598'], nibe_dashboard_de
     ['measurement_point_id' => '13', 'source_device_id' => $deviceId, 'source_point_id' => '13'],
     ['measurement_point_id' => '598', 'source_device_id' => $deviceId, 'source_point_id' => '598'],
 ]), 'known power measurement IDs are mapped for performance analysis');
+expect_same(['heat_power' => '700'], nibe_dashboard_default_role_mapping([
+    ['measurement_point_id' => '700', 'source_device_id' => 'another-device', 'source_point_id' => '598',
+        'name' => 'Heat capacity (EB101)'],
+]), 'heat capacity point 598 is mapped when its device ID differs');
 
 $kpis = nibe_dashboard_kpis([
     'frequency' => [
