@@ -105,21 +105,34 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         '30d' => $nowTimestamp - 30 * 86400,
     ];
     $samples = [];
+    $rejected = [];
     foreach (['frequency', 'supply', 'return', 'calculated_supply', 'outdoor', 'degree_minutes',
         'electric_power', 'heat_power', 'electric_energy', 'heat_energy', 'defrost'] as $role) {
+        $rejected[$role] = [];
         foreach ($observations[$role] ?? [] as $observation) {
             $rawValue = $observation['raw_value'] ?? null;
             $timestamp = $observation['source_timestamp'] ?? $observation['collected_at'] ?? null;
-            if (!is_string($rawValue) || !is_numeric($rawValue) || !is_string($timestamp)) {
+            if (!is_string($rawValue) || !is_numeric($rawValue)) {
+                $rejected[$role]['waarde is geen numerieke string'] = true;
+                continue;
+            }
+            if (!is_string($timestamp)) {
+                $rejected[$role]['tijd ontbreekt'] = true;
                 continue;
             }
             try {
                 $time = (new DateTimeImmutable($timestamp, new DateTimeZone('UTC')))->getTimestamp();
             } catch (Exception $exception) {
+                $rejected[$role]['tijd is ongeldig'] = true;
                 continue;
             }
             $value = (float) $rawValue;
-            if (!is_finite($value) || $time > $nowTimestamp) {
+            if (!is_finite($value)) {
+                $rejected[$role]['waarde is niet eindig'] = true;
+                continue;
+            }
+            if ($time > $nowTimestamp) {
+                $rejected[$role]['tijd ligt in de toekomst'] = true;
                 continue;
             }
             $samples[$role][] = ['time' => $time, 'value' => $value];
@@ -128,6 +141,23 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         usort($samples[$role], static fn (array $left, array $right): int => $left['time'] <=> $right['time']);
     }
 
+    $check = static fn (bool $ok, string $message): array => ['ok' => $ok, 'message' => $message];
+    $roleChecks = static function (string $role, string $label) use ($units, $observations, $samples, $rejected, $check): array {
+        $checks = [$check(array_key_exists($role, $units), $label . ' gekoppeld')];
+        if (array_key_exists($role, $units)) {
+            $checks[] = $check($samples[$role] !== [], $label . ': geldige numerieke meting in opgehaalde historie');
+            if ($samples[$role] === []) {
+                if (($observations[$role] ?? []) === []) {
+                    $checks[] = $check(false, $label . ': geen metingen in opgehaalde historie');
+                }
+                foreach (array_keys($rejected[$role]) as $reason) {
+                    $checks[] = $check(false, $label . ': ' . $reason);
+                }
+            }
+        }
+        return $checks;
+    };
+    $debug = ['periods' => [], 'frequency' => [], 'defrost' => []];
     $emptyPeriods = [];
     foreach ($windows as $period => $_start) {
         $emptyPeriods[$period] = ['cop' => null, 'electricity' => null, 'heat' => null, 'average_delta_t' => null];
@@ -159,6 +189,23 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
                     $emptyPeriods[$period][$metric] = $delta * $factor;
                 }
             }
+            $counterChecks = $roleChecks($role, $metric === 'heat' ? 'Warmteteller' : 'Elektriciteitsteller');
+            $counterChecks[] = $check($factor !== null, 'Tellereenheid is kWh of Wh (ontvangen: ' . ($unit !== '' ? $unit : 'leeg') . ')');
+            $counterChecks[] = $check($baseline !== null, 'Tellermeting vóór periode gevonden');
+            if ($baseline !== null) {
+                $age = $start - $baseline['time'];
+                $counterChecks[] = $check($age <= 21600, 'Tellermeting vóór periode: ' . $age . ' seconden vóór periodegrens (maximaal 21600)');
+            }
+            $counterChecks[] = $check($inPeriod !== [], 'Tellermeting in periode gevonden');
+            if ($inPeriod !== []) {
+                $last = $inPeriod[count($inPeriod) - 1];
+                $age = $nowTimestamp - $last['time'];
+                $counterChecks[] = $check($age <= 21600, 'Laatste tellermeting: ' . $age . ' seconden oud (maximaal 21600)');
+                if ($baseline !== null) {
+                    $counterChecks[] = $check($last['value'] >= $baseline['value'], 'Eindstand is niet lager dan beginstand (' . $last['value'] . ' tegenover ' . $baseline['value'] . ')');
+                }
+            }
+            $debug['periods'][$period][$metric] = $counterChecks;
         }
     }
 
@@ -175,15 +222,17 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
     }
     foreach (['electric_power' => 'electricity', 'heat_power' => 'heat'] as $role => $metric) {
         $unit = strtolower(trim((string) ($units[$role] ?? '')));
-        if (!in_array($unit, ['w', 'watts', 'kw', 'kilowatts'], true)) {
-            continue;
-        }
+        $validPowerUnit = in_array($unit, ['w', 'watts', 'kw', 'kilowatts'], true);
         foreach ($windows as $period => $start) {
             $periodSamples = array_values(array_filter(
                 $samples[$role],
                 static fn (array $sample): bool => $sample['time'] >= $start
             ));
-            if ($periodSamples === []) {
+            $powerChecks = $roleChecks($role, $metric === 'heat' ? 'Warmtevermogen' : 'Elektrisch vermogen');
+            $powerChecks[] = $check($validPowerUnit, 'Vermogenseenheid is W of kW (ontvangen: ' . ($unit !== '' ? $unit : 'leeg') . ')');
+            $powerChecks[] = $check($periodSamples !== [], 'Vermogensmetingen in periode: ' . count($periodSamples) . ' (minimaal 1)');
+            $debug['periods'][$period][$metric] = array_merge($powerChecks, $debug['periods'][$period][$metric]);
+            if (!$validPowerUnit || $periodSamples === []) {
                 continue;
             }
             $integratedPower[$period][$metric] = array_sum(array_map(
@@ -194,6 +243,25 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         }
     }
     foreach ($integratedPower as $period => $energy) {
+        $debug['periods'][$period]['cop'] = [
+            $check($energy['electricity'] !== null, 'Geïntegreerd elektrisch vermogen beschikbaar'),
+            $check($energy['heat'] !== null, 'Geïntegreerd warmtevermogen beschikbaar'),
+        ];
+        if ($energy['electricity'] !== null) {
+            $debug['periods'][$period]['cop'][] = $check($energy['electricity'] > 0, 'Geïntegreerde elektriciteit is positief: ' . $energy['electricity'] . ' kWh');
+        }
+        foreach (['electricity', 'heat'] as $metric) {
+            if ($energy[$metric] === null) {
+                // Period COP uses integrated power, not the energy-counter fallback.
+                $role = $metric === 'heat' ? 'heat_power' : 'electric_power';
+                $unit = strtolower(trim((string) ($units[$role] ?? '')));
+                $periodSamples = array_filter($samples[$role], static fn (array $sample): bool => $sample['time'] >= $windows[$period]);
+                $debug['periods'][$period]['cop'] = array_merge($debug['periods'][$period]['cop'], $roleChecks($role, $metric === 'heat' ? 'Warmtevermogen' : 'Elektrisch vermogen'), [
+                    $check(in_array($unit, ['w', 'watts', 'kw', 'kilowatts'], true), 'Vermogenseenheid is W of kW (ontvangen: ' . ($unit !== '' ? $unit : 'leeg') . ')'),
+                    $check($periodSamples !== [], 'Vermogensmetingen in periode: ' . count($periodSamples) . ' (minimaal 1)'),
+                ]);
+            }
+        }
         if ($energy['electricity'] !== null && $energy['electricity'] > 0 && $energy['heat'] !== null) {
             $emptyPeriods[$period]['cop'] = $energy['heat'] / $energy['electricity'];
         }
@@ -209,9 +277,9 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         if (in_array($returnUnit, ['c', 'celsius', '°c'], true)) {
             $returnUnit = '°c';
         }
+        $differences = [];
         if ($supplyUnit !== '' && $supplyUnit === $returnUnit
             && $supply !== [] && $return !== []) {
-            $differences = [];
             $usedReturns = [];
             foreach ($supply as $sample) {
                 $nearest = null;
@@ -235,6 +303,17 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
                 $emptyPeriods[$period]['average_delta_t'] = array_sum($differences) / count($differences);
             }
         }
+        $debug['periods'][$period]['average_delta_t'] = array_merge(
+            $roleChecks('supply', 'Aanvoer'), $roleChecks('return', 'Retour'),
+            [
+                $check($supplyUnit !== '' && $supplyUnit === $returnUnit, 'Aanvoer en retour hebben dezelfde niet-lege eenheid (' . $supplyUnit . ', ' . $returnUnit . ')'),
+                $check($supply !== [], 'Aanvoermetingen in periode: ' . count($supply)),
+                $check($return !== [], 'Retourmetingen in periode: ' . count($return)),
+            ]
+        );
+        if ($supplyUnit !== '' && $supplyUnit === $returnUnit && $supply !== [] && $return !== []) {
+            $debug['periods'][$period]['average_delta_t'][] = $check($differences !== [], 'Meetparen met tijdsverschil maximaal 300 seconden: ' . count($differences));
+        }
     }
     $deltaTNow = null;
     $supplyUnit = strtolower(trim((string) ($units['supply'] ?? '')));
@@ -245,9 +324,18 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
     if (in_array($returnUnit, ['c', 'celsius', '°c'], true)) {
         $returnUnit = '°c';
     }
+    $supply = $samples['supply'] === [] ? null : end($samples['supply']);
+    $return = $samples['return'] === [] ? null : end($samples['return']);
+    $debug['delta_t_now'] = array_merge($roleChecks('supply', 'Aanvoer'), $roleChecks('return', 'Retour'), [
+        $check($supplyUnit !== '' && $supplyUnit === $returnUnit, 'Aanvoer en retour hebben dezelfde niet-lege eenheid (' . $supplyUnit . ', ' . $returnUnit . ')'),
+    ]);
+    if ($supply !== null && $return !== null) {
+        $distance = abs($supply['time'] - $return['time']);
+        $age = $nowTimestamp - max($supply['time'], $return['time']);
+        $debug['delta_t_now'][] = $check($distance <= 300, 'Tijdsverschil: ' . $distance . ' seconden (maximaal 300)');
+        $debug['delta_t_now'][] = $check($age <= 900, 'Recentste meting: ' . $age . ' seconden oud (maximaal 900)');
+    }
     if ($supplyUnit !== '' && $supplyUnit === $returnUnit) {
-        $supply = $samples['supply'] === [] ? null : end($samples['supply']);
-        $return = $samples['return'] === [] ? null : end($samples['return']);
         if ($supply !== null && $return !== null && abs($supply['time'] - $return['time']) <= 300
             && $nowTimestamp - max($supply['time'], $return['time']) <= 900) {
             $deltaTNow = $supply['value'] - $return['value'];
@@ -337,7 +425,25 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             && $windows[$period] - $frequencyBaseline['time'] <= 21600
             && $latestFrequency !== null
             && $nowTimestamp - $latestFrequency['time'] <= 21600;
+        $debug['frequency'][$period] = array_merge($roleChecks('frequency', 'Compressorfrequentie'), [
+            $check(count($periodSamples) >= 2, 'Frequentiemetingen in periode: ' . count($periodSamples) . ' (minimaal 2)'),
+            $check($frequencyBaseline !== null, 'Frequentiemeting vóór periode gevonden'),
+        ]);
+        if ($frequencyBaseline !== null) {
+            $age = $windows[$period] - $frequencyBaseline['time'];
+            $debug['frequency'][$period][] = $check($age <= 21600, 'Frequentiemeting vóór periode: ' . $age . ' seconden vóór periodegrens (maximaal 21600)');
+        }
+        if ($latestFrequency !== null) {
+            $age = $nowTimestamp - $latestFrequency['time'];
+            $debug['frequency'][$period][] = $check($age <= 21600, 'Laatste frequentiemeting: ' . $age . ' seconden oud (maximaal 21600)');
+        }
     }
+    $debug['runtime'] = array_merge($roleChecks('frequency', 'Compressorfrequentie'), [
+        $check($runLengths !== [], 'Voltooide compressorruns met positieve duur waargenomen: ' . count($runLengths) . ' (minimaal 1; gaten van meer dan 3600 seconden onderbreken een run)'),
+    ]);
+    $debug['frequency_distribution'] = array_merge($debug['frequency']['24h'], [
+        $check($observedFrequencySeconds > 0, 'Waargenomen frequentietijd: ' . $observedFrequencySeconds . ' seconden (meer dan 0; geldige intervallen maximaal 3600 seconden)'),
+    ]);
     $defrostPeriods = [];
     foreach (['24h', '7d', '30d'] as $period) {
         $start = $windows[$period];
@@ -401,6 +507,31 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             static fn (array $sample): bool => $sample['time'] >= $start
         )) >= 2 && $defrostBaseline !== null && $start - $defrostBaseline['time'] <= 21600
             && $latestDefrost !== null && $nowTimestamp - $latestDefrost['time'] <= 21600;
+        $periodCount = count(array_filter($samples['defrost'], static fn (array $sample): bool => $sample['time'] >= $start));
+        $defrostChecks = array_merge($roleChecks('defrost', 'Ontdooistatus'), [
+            $check($periodCount >= 2, 'Ontdooimetingen in periode: ' . $periodCount . ' (minimaal 2)'),
+            $check($defrostBaseline !== null, 'Ontdooimeting vóór periode gevonden'),
+        ]);
+        if ($defrostBaseline !== null) {
+            $age = $start - $defrostBaseline['time'];
+            $defrostChecks[] = $check($age <= 21600, 'Ontdooimeting vóór periode: ' . $age . ' seconden vóór periodegrens (maximaal 21600)');
+        }
+        if ($latestDefrost !== null) {
+            $age = $nowTimestamp - $latestDefrost['time'];
+            $defrostChecks[] = $check($age <= 21600, 'Laatste ontdooimeting: ' . $age . ' seconden oud (maximaal 21600)');
+        }
+        $debug['defrost'][$period]['count'] = $defrostChecks;
+        $debug['defrost'][$period]['seconds'] = $defrostChecks;
+        $debug['defrost'][$period]['average_duration_seconds'] = array_merge($defrostChecks, [
+            $check($defrostDurations !== [], 'Voltooide ontdooicycli: ' . count($defrostDurations) . ' (minimaal 1)'),
+        ]);
+        $debug['defrost'][$period]['average_interval_seconds'] = array_merge($defrostChecks, [
+            $check(count($defrostStartTimes) >= 2, 'Waargenomen ontdooistarts: ' . count($defrostStartTimes) . ' (minimaal 2)'),
+        ]);
+        $debug['defrost'][$period]['percent'] = array_merge($defrostChecks, $roleChecks('frequency', 'Compressorfrequentie'), [
+            $check($periodRunningSeconds > 0, 'Waargenomen compressordraaitijd: ' . $periodRunningSeconds . ' seconden (meer dan 0)'),
+            $check($defrostSeconds <= $periodRunningSeconds, 'Ontdooitijd (' . $defrostSeconds . ' s) is niet groter dan draaitijd (' . $periodRunningSeconds . ' s)'),
+        ]);
         $defrostPeriods[$period] = [
             'count' => $hasPeriodData ? $defrostStarts : null,
             'seconds' => $hasPeriodData ? $defrostSeconds : null,
@@ -429,6 +560,21 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         $latestElectricPower['value'],
         (string) ($units['electric_power'] ?? '')
     );
+    $debug['cop_now'] = array_merge($roleChecks('electric_power', 'Elektrisch vermogen'), $roleChecks('heat_power', 'Warmtevermogen'));
+    foreach (['electric_power' => $latestElectricPower, 'heat_power' => $latestHeatPower] as $role => $sample) {
+        $label = $role === 'heat_power' ? 'Warmtevermogen' : 'Elektrisch vermogen';
+        $unit = strtolower(trim((string) ($units[$role] ?? '')));
+        if ($sample !== null) {
+            $age = $nowTimestamp - $sample['time'];
+            $kw = $powerToKw($sample['value'], $unit);
+            $debug['cop_now'][] = $check($age <= 900, $label . ': meting ' . $age . ' seconden oud (maximaal 900)');
+            $debug['cop_now'][] = $check($kw !== null, $label . ': eenheid is W of kW (ontvangen: ' . ($unit !== '' ? $unit : 'leeg') . ')');
+            if ($kw !== null) {
+                $debug['cop_now'][] = $check($role === 'heat_power' ? $kw >= 0 : $kw > 0,
+                    $label . ': ' . $kw . ' kW (' . ($role === 'heat_power' ? 'minimaal 0' : 'meer dan 0') . ')');
+            }
+        }
+    }
     $latestCop = $latestHeatPower !== null && $latestElectricPower !== null
         && $nowTimestamp - $latestHeatPower['time'] <= 900
         && $nowTimestamp - $latestElectricPower['time'] <= 900
@@ -469,6 +615,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         'frequency_distribution' => $frequencyDistribution,
         'frequency_seconds' => $frequencySeconds,
         'defrost_periods' => $defrostPeriods,
+        'debug' => $debug,
     ];
 }
 

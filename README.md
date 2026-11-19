@@ -114,6 +114,11 @@ maximaal 15 minuten oud zijn. De aanduiding “Live” betekent daarentegen alle
 dat een meting minder dan 24 uur oud is. Een nieuwe verzameling maakt een oude
 brontijd niet opnieuw actueel.
 
+Bij KPI's die niet beschikbaar zijn toont het dashboard tijdelijk een debugblok
+met geslaagde en mislukte controles, waaronder de gebruikte tijden en grenzen.
+Bij energie worden zowel de controles voor vermogen als voor de eventuele
+tellermeting getoond.
+
 Voor het bekende myUplink-apparaat worden elektrisch vermogen (bron-ID 32486
 of 13), warmtevermogen (bron-ID 598) en de ontdooistatus (bron-ID 44703)
 automatisch gekoppeld wanneer ze beschikbaar zijn. De
@@ -174,4 +179,5 @@ afkapping verschijnt een waarschuwing. Historie is alleen beschikbaar vanaf
 de eigen verzameling en wordt niet bij myUplink aangevuld.
 
 Voer de gerichte tests uit met `php tests/collector_test.php`,
-`php tests/collector_http_test.php` en `php tests/dashboard_test.php`.
+`php tests/collector_http_test.php`, `php tests/dashboard_test.php` en
+`php tests/dashboard_ui_test.php`.
