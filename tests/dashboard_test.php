@@ -95,6 +95,10 @@ $detectedCycles = nibe_dashboard_compressor_cycles([
         ['time' => $cycleStart + 5600, 'value' => 35],
         ['time' => $cycleStart + 5900, 'value' => 36],
     ],
+    'hot_water' => [
+        ['time' => $cycleStart + 5600, 'value' => 45],
+        ['time' => $cycleStart + 5900, 'value' => 47],
+    ],
     'outdoor' => [['time' => $cycleStart + 5800, 'value' => 2]],
     'electric_power' => [
         ['time' => $cycleStart + 5600, 'value' => 1000],
@@ -106,7 +110,7 @@ $detectedCycles = nibe_dashboard_compressor_cycles([
         ['time' => $cycleStart + 5900, 'value' => 4],
         ['time' => $cycleStart + 6200, 'value' => 4],
     ],
-], ['supply' => '°C', 'return' => 'C', 'electric_power' => 'W', 'heat_power' => 'kW']);
+], ['supply' => '°C', 'return' => 'C', 'hot_water' => '°C', 'electric_power' => 'W', 'heat_power' => 'kW']);
 expect_same(1, count($detectedCycles), 'frequency gaps do not turn an active compressor into an inferred stop');
 expect_same(600, $detectedCycles[0]['duration_seconds'], 'only fully observed start/stop transitions form compressor cycles');
 expect_same(-180, $detectedCycles[0]['degree_minutes_start'], 'cycle details include degree minutes at the start');
@@ -114,6 +118,25 @@ expect_same(25, $detectedCycles[0]['maximum_frequency'], 'cycle details include 
 expect_same(5.5, $detectedCycles[0]['average_delta_t'], 'cycle details average only nearby compatible supply/return samples');
 expect_same(0.1667, round($detectedCycles[0]['electricity_kwh'], 4), 'cycle electricity integrates only observed short-gap power intervals');
 expect_same(0.6667, round($detectedCycles[0]['heat_kwh'], 4), 'cycle heat integrates only observed short-gap power intervals');
+expect_same(4.0, $detectedCycles[0]['cop'], 'cycle COP is the ratio of measured heat and electricity energy');
+expect_same('Verwarming + Warm water', $detectedCycles[0]['operation'], 'cycle operation can indicate combined heating and hot-water production');
+$coolingCycle = nibe_dashboard_compressor_cycles([
+    'frequency' => [
+        ['time' => $cycleStart, 'value' => 0],
+        ['time' => $cycleStart + 300, 'value' => 20],
+        ['time' => $cycleStart + 600, 'value' => 0],
+    ],
+    'supply' => [
+        ['time' => $cycleStart + 300, 'value' => 5],
+        ['time' => $cycleStart + 450, 'value' => 5],
+    ],
+    'return' => [
+        ['time' => $cycleStart + 300, 'value' => 8],
+        ['time' => $cycleStart + 450, 'value' => 8],
+    ],
+], ['supply' => '°C', 'return' => '°C']);
+expect_same('Koeling', $coolingCycle[0]['operation'], 'negative cycle ΔT indicates cooling');
+expect_same(null, $coolingCycle[0]['cop'], 'cycle COP is unavailable without measured cycle energy');
 $outdoorCop = nibe_dashboard_cop_by_outdoor_temperature([
     'electric_power' => [
         ['time' => $cycleStart, 'value' => 1],

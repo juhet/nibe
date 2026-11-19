@@ -174,6 +174,8 @@ Onder **Metingen vergelijken** worden de beschikbare standaardtemperaturen
 getoond: tapwater, berekende toevoer, aanvoer, retour, temperatuur in huis en
 buitentemperatuur. Kies 4 uur, 24 uur, 7 dagen, 30 dagen of een eigen periode
 van maximaal 30 dagen in de lokale tijdzone; standaard wordt 24 uur getoond.
+De grafiekknop bij een belangrijke meting toont of verbergt de ontwikkeling van
+die meting over de afgelopen 24 uur.
 Klik op **Toon grafiek** om de gekozen periode te laden; **Inzoomen** en
 **Uitzoomen** halveren of verdubbelen de getoonde periode. De grafiek gebruikt
 de brontijd, of de verzameltijd als de brontijd ontbreekt.
@@ -186,6 +188,8 @@ meting heeft, wordt een lineaire schatting tussen waarnemingen getoond en
 duidelijk als schatting aangeduid; waarden staan onder elkaar in vaste,
 logische volgorde. Buiten waarnemingen of over gaten van meer dan 24 uur wordt
 geen waarde geschat. Lijnen zijn geen extra metingen.
+Temperatuurmetingen worden over gaten tot 24 uur verbonden; voor andere
+meetpunten geldt een maximale lijnafstand van één uur.
 Er worden maximaal 3000 recentste waarnemingen per meetpunt getoond; bij
 afkapping verschijnt een waarschuwing. Historie is alleen beschikbaar vanaf
 de eigen verzameling en wordt niet bij myUplink aangevuld.

@@ -10,7 +10,7 @@ file_put_contents($directory . '/app/config.php', <<<'PHP'
 function nibe_env(string $name, ?string $default = null): ?string
 {
     return $name === 'NIBE_DASHBOARD_ROLE_MAP'
-        ? '{"electric_power":"3","heat_power":"4"}'
+        ? '{"electric_power":"9","heat_power":"4","frequency":"5","supply":"1","return":"2","hot_water":"6"}'
         : $default;
 }
 
@@ -41,6 +41,9 @@ class DashboardTestStatement
             ['2', '44055', '35', '°C', $now - 295],
             ['3', '999', '2', 'kW<script>', $now - 300],
             ['4', '598', '3', 'kW', $now - 901],
+            ['5', '44701', '0', 'Hz', $now - 300],
+            ['6', '40013', '46', '°C', $now - 300],
+            ['9', '998', '1000', 'W', $now - 300],
         ];
         if (str_contains($this->sql, 'FROM nibe_measurement_points')) {
             return array_map(static fn (array $point): array => [
@@ -52,11 +55,34 @@ class DashboardTestStatement
             ], $points);
         }
         if (str_contains($this->sql, 'measurement_point_id IN')) {
-            return array_map(static fn (array $point): array => [
-                'measurement_point_id' => $point[0], 'raw_value' => $point[2],
-                'source_timestamp' => gmdate('Y-m-d H:i:s', $point[4]),
-                'collected_at' => gmdate('Y-m-d H:i:s', $point[4]),
-            ], $points);
+            $cycleStart = $now - 3600;
+            $events = [
+                ['5', '0', $cycleStart - 300],
+                ['5', '20', $cycleStart],
+                ['5', '20', $cycleStart + 300],
+                ['5', '0', $cycleStart + 600],
+                ['1', '40', $cycleStart],
+                ['1', '42', $cycleStart + 300],
+                ['2', '35', $cycleStart],
+                ['2', '36', $cycleStart + 300],
+                ['6', '45', $cycleStart],
+                ['6', '47', $cycleStart + 300],
+                ['9', '1000', $cycleStart],
+                ['9', '1000', $cycleStart + 300],
+                ['9', '1000', $cycleStart + 600],
+                ['4', '4', $cycleStart],
+                ['4', '4', $cycleStart + 300],
+                ['4', '4', $cycleStart + 600],
+                ['1', '40', $now - 600],
+                ['2', '35', $now - 295],
+                ['9', '1000', $now - 300],
+                ['4', '3', $now - 901],
+            ];
+            return array_map(static fn (array $event): array => [
+                'measurement_point_id' => $event[0], 'raw_value' => $event[1],
+                'source_timestamp' => gmdate('Y-m-d H:i:s', $event[2]),
+                'collected_at' => gmdate('Y-m-d H:i:s', $event[2]),
+            ], $events);
         }
         return [];
     }
@@ -79,8 +105,16 @@ try {
         || preg_match_all('/<details\b[^>]*class="debug"[^>]*>/', $html) !== $unavailable) {
         throw new RuntimeException('Each unavailable KPI must have exactly one collapsed debug disclosure; available KPIs must have none.');
     }
-    if (!str_contains($html, 'kw&lt;script&gt;') || str_contains($html, 'kw<script>')) {
+    if (!str_contains($html, 'kW&lt;script&gt;') || str_contains($html, 'kW<script>')) {
         throw new RuntimeException('Debug output must escape measurement units.');
+    }
+    if (!str_contains($html, '<th>COP</th>')
+        || !str_contains($html, '<td>4,00</td>')
+        || !str_contains($html, 'Verwarming + Warm water')
+        || !str_contains($html, 'Toon 24-uursgrafiek')
+        || str_contains($html, 'COP vereist elektrisch vermogen')
+        || str_contains($html, 'Koppelingen voor prestatie-inzichten')) {
+        throw new RuntimeException('Recent cycles must show COP and operating type, important readings must have chart toggles, and the obsolete explanation must be absent.');
     }
     if (!str_contains($html, '+ Instelling vastleggen')
         || !str_contains($html, 'id="setting-dialog"')

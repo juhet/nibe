@@ -128,7 +128,7 @@ try {
         $roleUnits[$role] = (string) ($measurementById[$measurementId]['unit'] ?? '');
     }
 
-    $historyRoles = ['frequency', 'supply', 'return', 'calculated_supply', 'outdoor', 'degree_minutes',
+    $historyRoles = ['frequency', 'supply', 'return', 'calculated_supply', 'hot_water', 'outdoor', 'degree_minutes',
         'electric_power', 'heat_power', 'electric_energy', 'heat_energy', 'defrost'];
     $historyIds = [];
     foreach ($historyRoles as $role) {
@@ -311,6 +311,8 @@ $chartPointIds = array_values(array_filter(array_map(
         .important-item { min-width: 0; padding: .55rem .7rem; background: #f3f6f8; border-radius: .4rem; }
         .important-item h3 { margin: 0; font-size: .9rem; }
         .important-item .value { margin: .15rem 0; font-size: 1.25rem; }
+        .important-chart { margin-top: .5rem; }
+        .important-chart .chart { min-height: 0; }
         .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .5rem 1rem; margin-top: 1rem; }
         .kpi { padding: .65rem .75rem; background: #eaf2f4; border-radius: .4rem; }
         .kpi strong { display: block; font-size: 1.2rem; }
@@ -418,6 +420,11 @@ $chartPointIds = array_values(array_filter(array_map(
                             <?php if (!$isEmpty && is_string($freshnessTimestamp)): ?>
                                 <small>Laatste meting: <time class="local-time" datetime="<?= nibe_escape($freshnessTimestamp) ?>"><?= nibe_escape($freshnessTimestamp) ?> UTC</time></small>
                             <?php endif; ?>
+                            <button type="button" class="important-chart-toggle"
+                                    data-point-id="<?= nibe_escape($defaultRoleMapping[$role]) ?>"
+                                    aria-controls="important-chart-<?= nibe_escape($role) ?>"
+                                    aria-expanded="false">Toon 24-uursgrafiek</button>
+                            <div class="important-chart" id="important-chart-<?= nibe_escape($role) ?>" hidden></div>
                         </article>
                     <?php endif; ?>
                 <?php endforeach; ?>
@@ -520,18 +527,21 @@ $chartPointIds = array_values(array_filter(array_map(
                 <p class="muted">Datadekking: huidige <?= nibe_escape(number_format($cycleSummary['coverage_percentage'], 1, ',', '') . '%') ?>; vorige <?= nibe_escape(number_format($cycleComparison['previous']['coverage_percentage'], 1, ',', '') . '%') ?>. Onvolledige perioden worden niet met getallen vergeleken.</p>
             <?php endif; ?>
             <h4>Recente individuele cycli</h4>
+            <p class="muted">De type-indicatie gebruikt het teken van ΔT voor verwarming of koeling en een stijging van minimaal 1 °C in tapwatertemperatuur voor warm water.</p>
             <?php if ($periodCycles === []): ?>
                 <p class="muted">Geen volledig waargenomen compressorcycli in deze periode.</p>
             <?php else: ?>
                 <div class="settings-table-wrap">
                     <table class="settings-table">
-                        <thead><tr><th>Start</th><th>Einde</th><th>Runduur</th><th>Details</th></tr></thead>
+                        <thead><tr><th>Start</th><th>Einde</th><th>Runduur</th><th>COP</th><th>Type (indicatie)</th><th>Details</th></tr></thead>
                         <tbody>
                             <?php foreach ($periodCycles as $cycle): ?>
                                 <tr>
                                     <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['start'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['start'])) ?> UTC</time></td>
                                     <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['end'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['end'])) ?> UTC</time></td>
                                     <td><?= nibe_escape(number_format($cycle['duration_seconds'] / 60, 1, ',', '') . ' min') ?></td>
+                                    <td><?= $cycle['cop'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['cop'], 2, ',', '')) ?></td>
+                                    <td><?= $cycle['operation'] === null ? 'Onbekend' : nibe_escape($cycle['operation']) ?></td>
                                     <td>
                                         <details>
                                             <summary>Meetwaarden</summary>
@@ -672,16 +682,6 @@ $chartPointIds = array_values(array_filter(array_map(
                 <div class="metric">Tijd tijdens draaien<strong><?= ($defrost['percent'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['percent'], 1, ',', '') . '%') ?></strong><?= nibe_debug($defrost['percent'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['percent']) ?></div>
                 <div class="metric">Datadekking<strong><?= nibe_escape(number_format($defrost['coverage_percentage'] ?? 0, 1, ',', '') . '%') ?></strong></div>
             </div>
-            <p class="muted">COP vereist elektrisch vermogen en warmtevermogen (W of kW) en een positief elektrisch vermogen. COP over een periode is de verhouding van de geïntegreerde warmte- en elektriciteitsenergie, met 5 minuten per opgeslagen meting. Voor COP nu moeten beide metingen maximaal 15 minuten oud zijn. Ontbrekende metingen worden niet aangevuld. Warmtevermogen kan niet uit temperaturen alleen worden bepaald.</p>
-            <p class="muted">Energie wordt uit vermogensmetingen geïntegreerd met vijf minuten per opgeslagen meting. Als vermogens niet bruikbaar zijn, vereisen cumulatieve tellers in kWh of Wh een meting binnen 6 uur vóór de periode en een eindmeting van maximaal 6 uur oud; uurwaarden en jaarwaarden die periodiek worden gereset zijn niet geschikt. Ontdooicijfers vereisen een gekoppelde status, voldoende recente historie en een meting binnen 6 uur vóór de periode; het gemiddelde interval vereist minstens twee waargenomen starts.</p>
-            <p class="muted">Koppelingen voor prestatie-inzichten (aanpassen via NIBE_DASHBOARD_ROLE_MAP):</p>
-            <ul>
-                <?php foreach (['electric_power' => 'Elektrisch vermogen', 'heat_power' => 'Warmtevermogen', 'electric_energy' => 'Elektriciteitsteller', 'heat_energy' => 'Warmteteller', 'defrost' => 'Ontdooistatus'] as $role => $label): ?>
-                    <li><?= nibe_escape($label) ?>: <?php if (isset($defaultRoleMapping[$role], $measurementById[$defaultRoleMapping[$role]])): ?>
-                        <?= nibe_escape($measurementById[$defaultRoleMapping[$role]]['name']) ?> (Meetpunt-ID: <?= nibe_escape($defaultRoleMapping[$role]) ?>)
-                    <?php else: ?>Niet gekoppeld<?php endif; ?></li>
-                <?php endforeach; ?>
-            </ul>
         </section>
         <section class="panel" aria-labelledby="chart-title">
             <h2 id="chart-title">Regelgedrag en warmteafgifte vergelijken</h2>
