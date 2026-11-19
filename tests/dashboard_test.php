@@ -64,6 +64,7 @@ expect_same('Supply line (EB101-BT12)', nibe_dashboard_point_name([
 
 $kpis = nibe_dashboard_kpis([
     'frequency' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-01 11:50:00'],
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
         ['raw_value' => '20', 'source_timestamp' => '2026-01-02 11:10:00'],
         ['raw_value' => '30', 'source_timestamp' => '2026-01-02 11:20:00'],
@@ -94,6 +95,91 @@ expect_same(null, nibe_dashboard_kpis([
     'supply' => [['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:00:00']],
     'return' => [['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:01:00']],
 ], '°C', '°F', new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')))['average_delta_t'], 'delta T is unavailable for incompatible units');
+
+$configuredMapping = nibe_dashboard_role_mapping([
+    ['measurement_point_id' => '101'],
+    ['measurement_point_id' => '102'],
+], '{"electric_power":101,"heat_power":"102","defrost":"999"}');
+expect_same(['electric_power' => '101', 'heat_power' => '102'], array_intersect_key(
+    $configuredMapping,
+    array_flip(['electric_power', 'heat_power', 'defrost'])
+), 'configured roles only accept discovered measurement point IDs');
+
+$performance = nibe_dashboard_performance_metrics([
+    'frequency' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-01 11:50:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:00:00'],
+        ['raw_value' => '25', 'source_timestamp' => '2026-01-02 11:10:00'],
+        ['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:20:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:30:00'],
+        ['raw_value' => '55', 'source_timestamp' => '2026-01-02 11:40:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:50:00'],
+    ],
+    'electric_power' => [['raw_value' => '500', 'source_timestamp' => '2026-01-02 11:50:00']],
+    'heat_power' => [['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:50:00']],
+    'electric_energy' => [
+        ['raw_value' => '10', 'source_timestamp' => '2026-01-01 23:00:00'],
+        ['raw_value' => '12', 'source_timestamp' => '2026-01-02 11:00:00'],
+    ],
+    'heat_energy' => [
+        ['raw_value' => '30', 'source_timestamp' => '2026-01-01 23:00:00'],
+        ['raw_value' => '36', 'source_timestamp' => '2026-01-02 11:00:00'],
+    ],
+    'defrost' => [
+        ['raw_value' => '0', 'source_timestamp' => '2025-12-03 11:00:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2025-12-26 11:00:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-01 11:00:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:15:00'],
+        ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:20:00'],
+        ['raw_value' => '1', 'source_timestamp' => '2026-01-02 11:25:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:30:00'],
+    ],
+    'supply' => [['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:58:00']],
+    'return' => [['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:59:00']],
+], [
+    'electric_power' => 'W',
+    'heat_power' => 'kW',
+    'electric_energy' => 'kWh',
+    'heat_energy' => 'kWh',
+    'supply' => '°C',
+    'return' => 'C',
+], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
+expect_same(4.0, $performance['cop_now'], 'COP converts compatible power units');
+expect_same(4.0, $performance['periods']['today']['cop'], 'daily COP averages observed power ratios');
+expect_same(2.0, $performance['periods']['today']['electricity'], 'energy consumption uses cumulative kWh readings');
+expect_same(6.0, $performance['periods']['today']['heat'], 'heat production uses cumulative kWh readings');
+expect_same(2, $performance['compressor_starts'], 'performance metrics count compressor starts');
+expect_same(1200, $performance['longest_run_seconds'], 'longest completed compressor run is reported');
+expect_same(600, $performance['shortest_run_seconds'], 'shortest completed compressor run is reported');
+expect_same(33.3, round($performance['frequency_distribution']['20-30'], 1), 'frequency band percentages use observed compressor runtime');
+expect_same(1, $performance['defrost_periods']['24h']['count'], 'defrost transitions are counted');
+expect_same(600, $performance['defrost_periods']['24h']['seconds'], 'defrost time is measured from observed samples');
+expect_same(1, $performance['defrost_periods']['7d']['count'], 'defrost metrics support a selected seven-day period');
+expect_same(5.0, $performance['delta_t_now'], 'current delta T requires recent matching measurements with compatible temperature units');
+expect_same(null, nibe_dashboard_performance_metrics([
+    'electric_power' => [['raw_value' => '500', 'source_timestamp' => '2026-01-02 11:50:00']],
+    'heat_power' => [['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:50:00']],
+], ['electric_power' => 'unknown', 'heat_power' => 'unknown'],
+    new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC'))
+)['periods']['24h']['cop'], 'unsupported power units leave COP unavailable');
+expect_same(null, nibe_dashboard_performance_metrics([
+    'frequency' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-01 10:00:00'],
+        ['raw_value' => '20', 'source_timestamp' => '2026-01-01 11:00:00'],
+    ],
+], [], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')))['compressor_starts'],
+    'stale compressor history does not appear as zero recent starts');
+$staleDefrost = nibe_dashboard_performance_metrics([
+    'defrost' => [
+        ['raw_value' => '0', 'source_timestamp' => '2025-12-03 11:00:00'],
+        ['raw_value' => '1', 'source_timestamp' => '2025-12-03 13:00:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2025-12-03 13:05:00'],
+        ['raw_value' => '1', 'source_timestamp' => '2025-12-04 13:00:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2025-12-04 13:05:00'],
+    ],
+], [], new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC')));
+expect_same(null, $staleDefrost['defrost_periods']['30d']['average_interval_seconds'],
+    'stale defrost samples do not produce an average interval');
 
 $request = nibe_dashboard_history_request(['points' => '1,22', 'start' => '100', 'end' => '200']);
 expect_same(['points' => ['1', '22'], 'start' => 100, 'end' => 200], $request, 'valid history request');
