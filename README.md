@@ -148,7 +148,8 @@ wanneer die metingen beschikbaar zijn.
 Onder **Metingen vergelijken** worden de beschikbare standaardtemperaturen
 getoond: tapwater, berekende toevoer, aanvoer, retour, temperatuur in huis en
 buitentemperatuur. Kies 4 uur, 24 uur, 7 dagen, 30 dagen of een eigen periode
-van maximaal 30 dagen in de lokale tijdzone en klik op **Toon grafiek**. De
+van maximaal 30 dagen in de lokale tijdzone; standaard wordt 24 uur getoond.
+Klik op **Toon grafiek** om de gekozen periode te laden. De
 grafiek gebruikt de brontijd, of de verzameltijd als de brontijd ontbreekt.
 Elke eenheid heeft een eigen
 grafiek met dezelfde tijdas en logische verdelingen op de y-as. Reeksen zijn

@@ -358,8 +358,8 @@ $chartPointIds = array_values(array_filter(array_map(
             <div class="controls">
                 <label>Periode
                     <select id="chart-period">
-                        <option value="4h" selected>4 uur</option>
-                        <option value="1">24 uur</option>
+                        <option value="4h">4 uur</option>
+                        <option value="1" selected>24 uur</option>
                         <option value="7">7 dagen</option>
                         <option value="30">30 dagen</option>
                         <option value="custom">Zelf kiezen</option>
