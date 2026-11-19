@@ -95,13 +95,15 @@ ontbrekende of onbereikbare databaseconfiguratie wordt een algemene melding
 getoond; technische foutdetails of inloggegevens worden niet in de pagina
 weergegeven. Waarden worden als aangeleverd getoond en alle tijden zijn UTC.
 
-Kies onder **Belangrijkste metingen** voor elke gewenste rol het juiste
-ontdekte meetpunt. Namen zijn niet altijd uniek: controleer apparaat en
-bron-ID. Deze keuzes blijven alleen in de lokale browser bewaard; er worden
-geen meetpunten automatisch op naam gekoppeld. Niet ingestelde rollen tonen
-geen verzonnen waarden.
+Onder **Belangrijkste metingen** worden de acht bekende meetpunten voor het
+opgegeven myUplink-apparaat automatisch aan hun rollen gekoppeld op basis van
+apparaat-ID en bronpunt-ID. Als een meetpunt ontbreekt, blijft de rol niet
+ingesteld; er worden geen waarden verzonnen. Rollen kunnen desgewenst worden
+aangepast, waarbij keuzes alleen in de lokale browser worden bewaard. De
+standaardgrafieken tonen de beschikbare gekoppelde meetpunten direct na het
+laden en verdelen ze over afzonderlijke grafieken per eenheid.
 
-Onder **Metingen vergelijken** kunnen maximaal zes meetpunten samen worden
+Onder **Metingen vergelijken** kunnen maximaal acht meetpunten samen worden
 geselecteerd (Ctrl of ⌘ voor meerdere), ook buiten de ingestelde rollen.
 Kies 24 uur, 7 dagen, 30 dagen of een eigen periode van maximaal 30 dagen
 in UTC en klik op **Toon grafiek**. De grafiek gebruikt de brontijd, of

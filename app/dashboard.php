@@ -1,5 +1,33 @@
 <?php
 
+function nibe_dashboard_default_role_mapping(array $measurements): array
+{
+    $deviceId = 'emmy-n-20251117-06794225149019-fc-0f-e7-5e-ef-32';
+    $sourcePointIds = [
+        'indoor' => '40033',
+        'hot_water' => '40013',
+        'outdoor' => '44362',
+        'degree_minutes' => '40941',
+        'frequency' => '44701',
+        'calculated_supply' => '43009',
+        'supply' => '44058',
+        'return' => '44055',
+    ];
+    $mapping = [];
+
+    foreach ($sourcePointIds as $role => $sourcePointId) {
+        foreach ($measurements as $measurement) {
+            if ((string) ($measurement['source_device_id'] ?? '') === $deviceId
+                && (string) ($measurement['source_point_id'] ?? '') === $sourcePointId) {
+                $mapping[$role] = (string) $measurement['measurement_point_id'];
+                break;
+            }
+        }
+    }
+
+    return $mapping;
+}
+
 function nibe_dashboard_history_request(array $query): ?array
 {
     $ids = $query['points'] ?? null;
@@ -12,7 +40,7 @@ function nibe_dashboard_history_request(array $query): ?array
     }
 
     $points = explode(',', $ids);
-    if (count($points) < 1 || count($points) > 6) {
+    if (count($points) < 1 || count($points) > 8) {
         return null;
     }
     foreach ($points as $point) {
