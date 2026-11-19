@@ -93,35 +93,14 @@ try {
              ORDER BY COALESCE(source_timestamp, collected_at) DESC, id DESC
              LIMIT 1'
         );
-        $baselineWindows = [
-            'frequency' => [$now->modify('-24 hours')],
-            'defrost' => [
-                $now->modify('-24 hours'),
-                $now->modify('-7 days'),
-                $now->modify('-30 days'),
-            ],
-            'electric_energy' => [
-                new DateTimeImmutable($now->format('Y-m-d 00:00:00'), new DateTimeZone('UTC')),
-                $now->modify('-7 days'),
-                $now->modify('-30 days'),
-            ],
-            'heat_energy' => [
-                new DateTimeImmutable($now->format('Y-m-d 00:00:00'), new DateTimeZone('UTC')),
-                $now->modify('-7 days'),
-                $now->modify('-30 days'),
-            ],
-        ];
-        foreach ($baselineWindows as $role => $starts) {
+        foreach (['defrost', 'electric_energy', 'heat_energy'] as $role) {
             if (!isset($historyIds[$role])) {
                 continue;
             }
-            foreach ($starts as $start) {
-                $boundary = $start->format('Y-m-d H:i:s');
-                $baselineStatement->execute([$historyIds[$role], $boundary, $boundary]);
-                $baseline = $baselineStatement->fetch();
-                if ($baseline !== false) {
-                    $historyByRole[$role][] = $baseline;
-                }
+            $baselineStatement->execute([$historyIds[$role], $historyStart, $historyStart]);
+            $baseline = $baselineStatement->fetch();
+            if ($baseline !== false) {
+                $historyByRole[$role][] = $baseline;
             }
         }
     }
@@ -315,6 +294,7 @@ $chartPointIds = array_values(array_filter(array_map(
                 <div class="kpi">Gemiddelde ΔT<strong><?= $performance['periods']['24h']['average_delta_t'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['24h']['average_delta_t'], 1, ',', '') . ' ' . ($roleUnits['supply'] ?? '')) ?></strong></div>
                 <div class="kpi">Warmtevermogen nu<strong><?= $currentHeatPower === null ? 'Niet beschikbaar' : nibe_escape($currentHeatPower) ?></strong></div>
             </div>
+            <p class="muted">ΔT nu vereist aanvoer en retour met dezelfde eenheid, maximaal 5 minuten tussen de brontijden en een recentste meting van maximaal 15 minuten oud. “Live” bij de meetpunten betekent minder dan 24 uur oud en is dus minder strikt.</p>
         </section>
         <section class="panel" aria-labelledby="performance-title">
             <h2 id="performance-title">Prestatie-inzichten</h2>
@@ -361,7 +341,16 @@ $chartPointIds = array_values(array_filter(array_map(
                 <div class="metric">Gemiddeld interval<strong><?= ($defrost['average_interval_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_interval_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong></div>
                 <div class="metric">Tijd tijdens draaien<strong><?= ($defrost['percent'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['percent'], 1, ',', '') . '%') ?></strong></div>
             </div>
-            <p class="muted">COP en energie worden alleen getoond wanneer compatibele vermogens- of energietellers zijn gekoppeld. Energietellerwaarden moeten in kWh of Wh staan en actuele begin- en eindmetingen hebben.</p>
+            <p class="muted">COP vereist gekoppeld elektrisch vermogen en warmtevermogen (W of kW), met meettijden binnen 5 minuten en een positief elektrisch vermogen. Voor COP nu moet de meting maximaal 15 minuten oud zijn. Warmtevermogen kan niet uit temperaturen alleen worden bepaald.</p>
+            <p class="muted">Energie vereist cumulatieve tellers in kWh of Wh met een meting binnen 6 uur vóór de periode en een eindmeting van maximaal 6 uur oud. Uurwaarden en jaarwaarden die periodiek worden gereset zijn geen geschikte cumulatieve tellers. Ontdooicijfers vereisen een gekoppelde status, voldoende recente historie en een meting binnen 6 uur vóór de periode; het gemiddelde interval vereist minstens twee waargenomen starts.</p>
+            <p class="muted">Koppelingen voor prestatie-inzichten (aanpassen via NIBE_DASHBOARD_ROLE_MAP):</p>
+            <ul>
+                <?php foreach (['electric_power' => 'Elektrisch vermogen', 'heat_power' => 'Warmtevermogen', 'electric_energy' => 'Elektriciteitsteller', 'heat_energy' => 'Warmteteller', 'defrost' => 'Ontdooistatus'] as $role => $label): ?>
+                    <li><?= nibe_escape($label) ?>: <?php if (isset($defaultRoleMapping[$role], $measurementById[$defaultRoleMapping[$role]])): ?>
+                        <?= nibe_escape($measurementById[$defaultRoleMapping[$role]]['name']) ?> (Meetpunt-ID: <?= nibe_escape($defaultRoleMapping[$role]) ?>)
+                    <?php else: ?>Niet gekoppeld<?php endif; ?></li>
+                <?php endforeach; ?>
+            </ul>
         </section>
         <section class="panel" aria-labelledby="chart-title">
             <h2 id="chart-title">Regelgedrag en warmteafgifte vergelijken</h2>

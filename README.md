@@ -107,16 +107,26 @@ van nul naar een positieve compressorfrequentie, het gemiddelde verschil tussen
 aanvoer en retour voor metingen die maximaal vijf minuten uit elkaar liggen en
 de gemiddelde, langste en kortste duur van afgeronde compressorritten. Delta T
 nu en gemiddeld over 24 uur worden alleen getoond als de temperaturen dezelfde
-eenheid hebben en voldoende recente, bij elkaar passende metingen beschikbaar
-zijn.
+eenheid hebben en bij elkaar passende metingen beschikbaar zijn. Voor ΔT nu
+moeten de metingen maximaal vijf minuten uiteen liggen en mag de recentste
+maximaal 15 minuten oud zijn. De aanduiding “Live” betekent daarentegen alleen
+dat een meting minder dan 24 uur oud is. Een nieuwe verzameling maakt een oude
+brontijd niet opnieuw actueel.
 
-**Prestatie-inzichten** tonen COP alleen als expliciet gekoppelde warmte- en
+Voor het bekende myUplink-apparaat worden ook elektrisch vermogen (bron-ID
+32486) en de ontdooistatus (bron-ID 44703) automatisch gekoppeld. De
+prestatie-inzichten tonen de actieve koppelingen; deze kunnen worden aangepast
+via de rolconfiguratie hieronder.
+
+**Prestatie-inzichten** tonen COP alleen als gekoppelde warmte- en
 elektrische vermogens beschikbaar zijn met eenheden W of kW en meettijden
 maximaal vijf minuten uit elkaar. COP is de gemiddelde verhouding van die
 waargenomen vermogens; een waarschuwing verschijnt als de actuele COP meer dan
 20% afwijkt van het 24-uursgemiddelde. Elektriciteits- en warmteverbruik worden
 alleen uit expliciet gekoppelde cumulatieve energietellers in kWh of Wh berekend,
 met een meting binnen zes uur van de periodegrens en een recente eindmeting.
+Uurwaarden en jaarwaarden die periodiek worden gereset zijn geen cumulatieve
+tellers en mogen niet als zodanig worden gekoppeld.
 Periodegrenzen voor vandaag zijn UTC. Compressorfrequentiebanden worden over
 de afgelopen 24 uur berekend. De defrostperiode is instelbaar op 24 uur, 7 of
 30 dagen. Compressor- en defrostcijfers vereisen voldoende recente metingen en
