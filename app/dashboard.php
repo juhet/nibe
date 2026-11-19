@@ -28,6 +28,25 @@ function nibe_dashboard_default_role_mapping(array $measurements): array
     return $mapping;
 }
 
+function nibe_dashboard_point_name(array $point): string
+{
+    $deviceId = 'emmy-n-20251117-06794225149019-fc-0f-e7-5e-ef-32';
+    if ((string) ($point['source_device_id'] ?? '') !== $deviceId) {
+        return (string) ($point['name'] ?? '');
+    }
+
+    return [
+        '40033' => 'Temperatuur in huis',
+        '40013' => 'Temperatuur warm tapwater',
+        '44362' => 'Buitentemperatuur',
+        '40941' => 'Graadminuten',
+        '44701' => 'Compressorfrequentie',
+        '43009' => 'Berekende toevoer',
+        '44058' => 'Aanvoer',
+        '44055' => 'Retour',
+    ][(string) ($point['source_point_id'] ?? '')] ?? (string) ($point['name'] ?? '');
+}
+
 function nibe_dashboard_history_request(array $query): ?array
 {
     $ids = $query['points'] ?? null;

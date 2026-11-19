@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET' || $request === null) {
 try {
     $database = nibe_database();
     $pointQuery = $database->prepare(
-        'SELECT p.id, p.name, p.unit, p.source_point_id, d.display_name AS device_name
+        'SELECT p.id, p.name, p.unit, p.source_point_id, d.source_device_id, d.display_name AS device_name
          FROM nibe_measurement_points p
          INNER JOIN nibe_devices d ON d.id = p.device_id
          WHERE p.id = ? AND p.enabled = 1'
@@ -72,6 +72,7 @@ try {
             unset($observation['id']);
         }
         unset($observation);
+        $point['display_name'] = nibe_dashboard_point_name($point);
         $series[] = ['point' => $point, 'observations' => array_reverse($observations), 'truncated' => $truncated];
     }
     echo json_encode(['series' => $series], JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);

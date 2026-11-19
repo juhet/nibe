@@ -165,13 +165,13 @@ $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         </section>
         <section class="panel" aria-labelledby="chart-title">
             <h2 id="chart-title">Metingen vergelijken</h2>
-            <p class="muted">De beschikbare standaardmeetpunten worden automatisch getoond; je kunt maximaal acht meetpunten kiezen (Ctrl of ⌘ voor meerdere). Verschillende eenheden krijgen een eigen grafiek met dezelfde tijdas. Lijnen zijn slechts een visuele verbinding, geen extra metingen. Zet bij statuscodes en tellers geen lijn aan.</p>
+            <p class="muted">De beschikbare standaardmeetpunten worden automatisch getoond; je kunt maximaal acht meetpunten kiezen (Ctrl of ⌘ voor meerdere). Verschillende eenheden krijgen een eigen grafiek met dezelfde tijdas. Lijnen zijn een visuele verbinding; waarden tussen metingen worden bij vergelijken als schatting getoond.</p>
             <label for="chart-points">Meetpunten</label>
             <select id="chart-points" class="point-select" multiple>
                 <?php foreach ($measurements as $measurement): ?>
                     <option value="<?= nibe_escape((string) $measurement['measurement_point_id']) ?>"
                         <?= in_array((string) $measurement['measurement_point_id'], array_values($defaultRoleMapping), true) ? 'selected' : '' ?>>
-                        <?= nibe_escape($measurement['name'] . ' — ' . $measurement['device_name'] . ' [' . $measurement['source_point_id'] . ']') ?>
+                        <?= nibe_escape(nibe_dashboard_point_name($measurement) . ' — ' . $measurement['device_name']) ?>
                     </option>
                 <?php endforeach; ?>
             </select>
