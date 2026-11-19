@@ -22,14 +22,22 @@ try {
          INNER JOIN nibe_devices d ON d.id = p.device_id
          WHERE p.id = ? AND p.enabled = 1'
     );
-    $historyQuery = $database->prepare(
-        'SELECT raw_value, source_timestamp, collected_at
+    $sourceHistoryQuery = $database->prepare(
+        'SELECT id, raw_value, source_timestamp, collected_at
          FROM nibe_observations
          WHERE measurement_point_id = ?
-           AND COALESCE(source_timestamp, collected_at) >= ?
-           AND COALESCE(source_timestamp, collected_at) <= ?
+           AND source_timestamp >= ? AND source_timestamp <= ?
            AND LENGTH(raw_value) <= 128
-         ORDER BY COALESCE(source_timestamp, collected_at) DESC, id DESC
+         ORDER BY source_timestamp DESC, id DESC
+         LIMIT 3001'
+    );
+    $collectedHistoryQuery = $database->prepare(
+        'SELECT id, raw_value, source_timestamp, collected_at
+         FROM nibe_observations
+         WHERE measurement_point_id = ?
+           AND collected_at >= ? AND collected_at <= ?
+           AND source_timestamp IS NULL AND LENGTH(raw_value) <= 128
+         ORDER BY collected_at DESC, id DESC
          LIMIT 3001'
     );
     $series = [];
@@ -41,16 +49,29 @@ try {
             echo json_encode(['error' => 'Onbekend meetpunt.']);
             exit;
         }
-        $historyQuery->execute([
+        $parameters = [
             $id,
             gmdate('Y-m-d H:i:s', $request['start']),
             gmdate('Y-m-d H:i:s', $request['end']),
-        ]);
-        $observations = $historyQuery->fetchAll();
+        ];
+        $sourceHistoryQuery->execute($parameters);
+        $collectedHistoryQuery->execute($parameters);
+        $observations = array_merge($sourceHistoryQuery->fetchAll(), $collectedHistoryQuery->fetchAll());
+        usort($observations, static function (array $left, array $right): int {
+            $timeOrder = strcmp(
+                $right['source_timestamp'] ?? $right['collected_at'],
+                $left['source_timestamp'] ?? $left['collected_at']
+            );
+            return $timeOrder !== 0 ? $timeOrder : ($right['id'] <=> $left['id']);
+        });
         $truncated = count($observations) > 3000;
         if ($truncated) {
-            array_pop($observations);
+            $observations = array_slice($observations, 0, 3000);
         }
+        foreach ($observations as &$observation) {
+            unset($observation['id']);
+        }
+        unset($observation);
         $series[] = ['point' => $point, 'observations' => array_reverse($observations), 'truncated' => $truncated];
     }
     echo json_encode(['series' => $series], JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
