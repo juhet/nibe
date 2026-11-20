@@ -115,9 +115,7 @@
         if (!before || !after || after.time - before.time > maxGap) {
             const nearest = !before ? after : !after ? before
                 : time - before.time <= after.time - time ? before : after;
-            return nearest && Math.abs(nearest.time - time) <= maxGap
-                ? {value: nearest.value, raw: nearest.raw, observedTime: nearest.time}
-                : null;
+            return nearest ? {value: nearest.value, raw: nearest.raw, observedTime: nearest.time} : null;
         }
         const fraction = (time - before.time) / (after.time - before.time);
         const value = before.value + (after.value - before.value) * fraction;
