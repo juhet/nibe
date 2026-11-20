@@ -160,20 +160,6 @@
             const date = new Date(start + i * (end - start) / 4);
             svg.append(element('text', {x: xx, y: 310, 'text-anchor': i === 0 ? 'start' : i === 4 ? 'end' : 'middle'}, localDateTime(date.getTime())));
         }
-        const hitArea = element('rect', {x: 75, y: 35, width: 900, height: 250, fill: 'transparent', 'pointer-events': 'all', 'aria-label': 'Vergelijk meetpunten op dit tijdstip'});
-        hitArea.style.cursor = 'crosshair';
-        hitArea.addEventListener('pointermove', event => {
-            const point = svg.createSVGPoint();
-            point.x = event.clientX;
-            point.y = event.clientY;
-            const chartX = point.matrixTransform(svg.getScreenCTM().inverse()).x;
-            showComparison(start + (chartX - 75) / 900 * (end - start));
-        });
-        hitArea.addEventListener('pointerleave', () => {
-            comparisonLine.setAttribute('visibility', 'hidden');
-            for (const item of series) item.comparisonMarker.setAttribute('visibility', 'hidden');
-        });
-        svg.append(hitArea);
         for (const item of series) {
             const li = document.createElement('li');
             const swatch = document.createElement('span');
@@ -193,14 +179,13 @@
                 previous = point.time;
             }
             const seriesGroup = element('g');
-            const line = element('path', {d: path, fill: 'none', stroke: item.color, 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none'});
+            const line = element('path', {d: path, fill: 'none', stroke: item.color, 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round'});
             seriesGroup.append(line);
             for (const point of item.values) {
                 const description = item.label + ' — ' + point.raw + (unit ? ' ' + unit : '')
                     + ' — ' + point.timeLabel + ': ' + localDateTime(point.time);
                 const circle = element('circle', {cx: x(point.time), cy: y(point.value), r: 2.5, fill: item.color, tabindex: '0', 'aria-label': description});
                 circle.append(element('title', {}, description));
-                circle.addEventListener('pointerenter', () => showComparison(point.time));
                 circle.addEventListener('focus', () => showComparison(point.time));
                 seriesGroup.append(circle);
             }
@@ -240,6 +225,20 @@
             }
             detail.textContent = descriptions.join('\n');
         }
+        const hitArea = element('rect', {x: 75, y: 35, width: 900, height: 250, fill: 'transparent', 'pointer-events': 'all', 'aria-label': 'Vergelijk meetpunten op dit tijdstip'});
+        hitArea.style.cursor = 'crosshair';
+        hitArea.addEventListener('pointermove', event => {
+            const point = svg.createSVGPoint();
+            point.x = event.clientX;
+            point.y = event.clientY;
+            const chartX = point.matrixTransform(svg.getScreenCTM().inverse()).x;
+            showComparison(start + (chartX - 75) / 900 * (end - start));
+        });
+        hitArea.addEventListener('pointerleave', () => {
+            comparisonLine.setAttribute('visibility', 'hidden');
+            for (const item of series) item.comparisonMarker.setAttribute('visibility', 'hidden');
+        });
+        svg.append(hitArea);
         section.append(legend, detail, svg);
         return section;
     }
