@@ -101,13 +101,21 @@
         return (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
     }
 
-    function valueAt(item, time) {
+    function valueAt(item, time, maxGap) {
         const values = item.values;
-        let next = values.findIndex(point => point.time >= time);
-        if (next !== -1 && Math.abs(values[next].time - time) < 1) {
-            return {value: values[next].value, raw: values[next].raw};
+        let low = 0, high = values.length;
+        while (low < high) {
+            const middle = Math.floor((low + high) / 2);
+            if (values[middle].time < time) low = middle + 1;
+            else high = middle;
         }
-        return null;
+        const after = values[low];
+        if (after && after.time === time) return {value: after.value, raw: after.raw};
+        const before = values[low - 1];
+        if (!before || !after || after.time - before.time > maxGap) return null;
+        const fraction = (time - before.time) / (after.time - before.time);
+        const value = before.value + (after.value - before.value) * fraction;
+        return Number.isFinite(value) ? {value, estimated: true} : null;
     }
 
     function drawGroup(unit, series, start, end) {
@@ -134,6 +142,10 @@
         const x = t => 75 + (t - start) / (end - start) * 900;
         const y = v => 285 - (v - axisMin) / (axisMax - axisMin) * 250;
         const numberFormat = new Intl.NumberFormat('nl-NL', {maximumFractionDigits: 2});
+        const normalizedUnit = unit.trim().toLowerCase();
+        const maxLineGap = ['°c', 'c', 'celsius'].includes(normalizedUnit)
+            ? 24 * 3600000
+            : 3600000;
         for (let value = axisMin, i = 0; value <= axisMax + interval / 1000 && i < 10; value += interval, i++) {
             const yy = y(value);
             svg.append(element('line', {x1: 75, y1: yy, x2: 975, y2: yy, stroke: '#d8e0e6'}));
@@ -157,10 +169,6 @@
             li.append(swatch, label);
             legend.append(li);
             let path = '', previous = null;
-            const normalizedUnit = unit.trim().toLowerCase();
-            const maxLineGap = ['°c', 'c', 'celsius'].includes(normalizedUnit)
-                ? 24 * 3600000
-                : 3600000;
             for (const point of item.values) {
                 path += (previous === null || point.time - previous > maxLineGap ? ' M ' : ' L ')
                     + x(point.time) + ' ' + y(point.value);
@@ -197,7 +205,7 @@
                     item.comparisonMarker.setAttribute('visibility', 'hidden');
                     continue;
                 }
-                const value = valueAt(item, time);
+                const value = valueAt(item, time, maxLineGap);
                 if (value === null) {
                     item.comparisonMarker.setAttribute('visibility', 'hidden');
                     descriptions.push(item.label + ': geen meting');
@@ -206,7 +214,9 @@
                 item.comparisonMarker.setAttribute('cx', x(time));
                 item.comparisonMarker.setAttribute('cy', y(value.value));
                 item.comparisonMarker.setAttribute('visibility', 'visible');
-                descriptions.push(item.label + ': ' + value.raw + (unit ? ' ' + unit : '') + ' (gemeten)');
+                descriptions.push(item.label + ': '
+                    + (value.estimated ? numberFormat.format(value.value) : value.raw)
+                    + (unit ? ' ' + unit : '') + (value.estimated ? ' (schatting)' : ' (gemeten)'));
             }
             detail.textContent = descriptions.join('\n');
         }
