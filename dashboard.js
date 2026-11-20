@@ -216,7 +216,7 @@
                 item.comparisonMarker.setAttribute('visibility', 'visible');
                 descriptions.push(item.label + ': '
                     + (value.estimated ? numberFormat.format(value.value) : value.raw)
-                    + (unit ? ' ' + unit : '') + (value.estimated ? ' (schatting)' : ' (gemeten)'));
+                    + (unit ? ' ' + unit : ''));
             }
             detail.textContent = descriptions.join('\n');
         }
