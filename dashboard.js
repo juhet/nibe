@@ -112,7 +112,11 @@
         const after = values[low];
         if (after && after.time === time) return {value: after.value, raw: after.raw};
         const before = values[low - 1];
-        if (!before || !after || after.time - before.time > maxGap) return null;
+        if (!before || !after || after.time - before.time > maxGap) {
+            const nearest = !before ? after : !after ? before
+                : time - before.time <= after.time - time ? before : after;
+            return nearest ? {value: nearest.value, raw: nearest.raw, observedTime: nearest.time} : null;
+        }
         const fraction = (time - before.time) / (after.time - before.time);
         const value = before.value + (after.value - before.value) * fraction;
         return Number.isFinite(value) ? {value, estimated: true} : null;
@@ -211,12 +215,13 @@
                     descriptions.push(item.label + ': geen meting');
                     continue;
                 }
-                item.comparisonMarker.setAttribute('cx', x(time));
+                item.comparisonMarker.setAttribute('cx', x(value.observedTime ?? time));
                 item.comparisonMarker.setAttribute('cy', y(value.value));
                 item.comparisonMarker.setAttribute('visibility', 'visible');
                 descriptions.push(item.label + ': '
                     + (value.estimated ? numberFormat.format(value.value) : value.raw)
-                    + (unit ? ' ' + unit : ''));
+                    + (unit ? ' ' + unit : '')
+                    + (value.observedTime === undefined ? '' : ' — waargenomen: ' + localDateTime(value.observedTime)));
             }
             detail.textContent = descriptions.join('\n');
         }
