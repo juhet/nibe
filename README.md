@@ -105,11 +105,13 @@ naar de eigen database en wijzigt geen warmtepompinstellingen.
 
 Na het importeren van het schema en het instellen van de databasevariabelen
 opent de startpagina. Zonder opgeslagen meetpunten toont de pagina dat er nog
-geen gegevens zijn. Na een geslaagde collector-aanroep toont zij de ontdekte
-meetpunten en laatste waarden. Meetpunten waarvan de bron- of verzameltijd meer
-dan 24 uur oud is, worden als verouderd aangeduid; ontbrekende waarden worden
-als leeg weergegeven. Een oude brontijd kan ook een ongewijzigde waarde
-betekenen; het is geen bewijs dat de verbinding uitgevallen is. Bij
+geen gegevens zijn. Na een geslaagde collector-aanroep tonen beide dashboards
+dezelfde laatst opgeslagen meetwaarden voor hun gekoppelde meetpunten. Het
+nieuwe dashboard toont waarden tot
+24 uur oud; een gekleurde stip geeft aan wanneer een waarde ouder is dan 15
+minuten. Waarden ouder dan 24 uur worden als niet beschikbaar getoond. Een oude
+brontijd kan ook een ongewijzigde waarde betekenen; het is geen bewijs dat de
+verbinding uitgevallen is. Bij
 ontbrekende of onbereikbare databaseconfiguratie wordt een algemene melding
 getoond; technische foutdetails of inloggegevens worden niet in de pagina
 weergegeven. Waarden worden als aangeleverd getoond. Tijden worden in de

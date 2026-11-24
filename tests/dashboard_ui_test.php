@@ -50,6 +50,13 @@ class DashboardTestStatement
             ['9', '998', '1000', 'W', $now - 300],
             ['10', '43084', '0', 'kW', $now - 300],
         ];
+        if (getenv('NIBE_TEST_STALE_READING') === '1') {
+            $points[4][4] = $now - 3600;
+        } elseif (getenv('NIBE_TEST_BOUNDARY_READING') === '1') {
+            $points[4][4] = $now - 86400;
+        } elseif (getenv('NIBE_TEST_EXPIRED_READING') === '1') {
+            $points[4][4] = $now - 86401;
+        }
         if (str_contains($this->sql, 'FROM nibe_measurement_points')) {
             if (getenv('NIBE_TEST_EMPTY_DATA') === '1') {
                 return [];
@@ -177,6 +184,21 @@ try {
         || str_contains($homeHtml, 'Alle meetpunten (')
         || !str_contains($homeHtml, 'Niet beschikbaar')) {
         throw new RuntimeException('The default dashboard must show visual system controls and avoid exposing raw measurement lists: ' . $homeError);
+    }
+    [$staleHtml, $staleError, $staleExitCode] = $renderHome(['NIBE_TEST_STALE_READING' => '1']);
+    if ($staleExitCode !== 0
+        || !preg_match('/data-reading="frequency">0 Hz<span class="reading-status stale"[^>]*aria-label="Laatste waarde, ouder dan 15 minuten"/', $staleHtml)) {
+        throw new RuntimeException('The dashboard must show the latest value with a stale indicator until it is more than 24 hours old: ' . $staleError);
+    }
+    [$boundaryHtml, $boundaryError, $boundaryExitCode] = $renderHome(['NIBE_TEST_BOUNDARY_READING' => '1']);
+    if ($boundaryExitCode !== 0
+        || !preg_match('/data-reading="frequency">0 Hz<span class="reading-status stale"[^>]*aria-label="Laatste waarde, ouder dan 15 minuten"/', $boundaryHtml)) {
+        throw new RuntimeException('The dashboard must still show a measurement exactly 24 hours old: ' . $boundaryError);
+    }
+    [$expiredHtml, $expiredError, $expiredExitCode] = $renderHome(['NIBE_TEST_EXPIRED_READING' => '1']);
+    if ($expiredExitCode !== 0
+        || !preg_match('/data-reading="frequency">Niet beschikbaar<span class="reading-status unavailable"[^>]*aria-label="Laatste meting is ouder dan 24 uur"/', $expiredHtml)) {
+        throw new RuntimeException('The dashboard must hide values older than 24 hours: ' . $expiredError);
     }
     if (!preg_match('/data-cycles="([^"]+)"/', $homeHtml, $cycleAttribute)) {
         throw new RuntimeException('Replay must include the observed compressor cycles.');
