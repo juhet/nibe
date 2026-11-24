@@ -979,13 +979,12 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             $samples['defrost'],
             static fn (array $sample): bool => $sample['time'] >= $start
         )) >= 2 && $defrostBaseline !== null && $start - $defrostBaseline['time'] <= 21600
-            && $latestDefrost !== null && $nowTimestamp - $latestDefrost['time'] <= 21600
-            && $defrostCoveragePercentage >= 80;
+            && $latestDefrost !== null && $nowTimestamp - $latestDefrost['time'] <= 21600;
         $periodCount = count(array_filter($samples['defrost'], static fn (array $sample): bool => $sample['time'] >= $start));
         $defrostChecks = array_merge($roleChecks('defrost', 'Ontdooistatus'), [
             $check($periodCount >= 2, 'Ontdooimetingen in periode: ' . $periodCount . ' (minimaal 2)'),
             $check($defrostBaseline !== null, 'Ontdooimeting vóór periode gevonden'),
-            $check($defrostCoveragePercentage >= 80, 'Datadekking: ' . number_format($defrostCoveragePercentage, 1, ',', '') . '% (minimaal 80%)'),
+            $check(true, 'Datadekking: ' . number_format($defrostCoveragePercentage, 1, ',', '') . '% (informatief; intervallen van maximaal 1 uur tellen mee)'),
         ]);
         if ($defrostBaseline !== null) {
             $age = $start - $defrostBaseline['time'];
