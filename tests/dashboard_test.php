@@ -184,6 +184,7 @@ $sourcePointIds = [
     'supply' => '44058',
     'return' => '44055',
     'electric_power' => '32486',
+    'auxiliary_heat_power' => '43084',
     'defrost' => '44703',
 ];
 $measurements = [
@@ -233,6 +234,17 @@ expect_same('701', nibe_dashboard_role_mapping([
     ['measurement_point_id' => '700', 'name' => 'Heat capacity (EB101)', 'unit' => 'kW'],
     ['measurement_point_id' => '701', 'name' => 'Heat capacity (EB101)', 'unit' => 'W'],
 ], '{"heat_power":"701"}')['heat_power'], 'explicit heat power mapping resolves ambiguity');
+expect_same(['auxiliary_heat_power' => '702'], nibe_dashboard_default_role_mapping([
+    ['measurement_point_id' => '702', 'name' => 'Additional heat power', 'unit' => 'kW'],
+]), 'additional heat power maps by its unique name and compatible unit');
+expect_same([], nibe_dashboard_default_role_mapping([
+    ['measurement_point_id' => '702', 'name' => 'Additional heat power', 'unit' => 'kW'],
+    ['measurement_point_id' => '703', 'name' => 'Additional heat power', 'unit' => 'W'],
+]), 'ambiguous auxiliary heat points require explicit configuration');
+expect_same('703', nibe_dashboard_role_mapping([
+    ['measurement_point_id' => '702', 'name' => 'Additional heat power', 'unit' => 'kW'],
+    ['measurement_point_id' => '703', 'name' => 'Additional heat power', 'unit' => 'W'],
+], '{"auxiliary_heat_power":"703"}')['auxiliary_heat_power'], 'explicit auxiliary heat mapping resolves ambiguity');
 
 $kpis = nibe_dashboard_kpis([
     'frequency' => [
@@ -549,7 +561,33 @@ $invalidDebug = nibe_dashboard_performance_metrics([
 expect_same(true, in_array(['ok' => false, 'message' => 'Elektrisch vermogen: waarde is geen numerieke string'],
     $invalidDebug['debug']['cop_now'], true), 'debug explains why observations were rejected');
 
+$auxiliaryHeat = nibe_dashboard_performance_metrics([
+    'auxiliary_heat_power' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:40:00'],
+        ['raw_value' => '3', 'source_timestamp' => '2026-01-02 11:45:00'],
+        ['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:50:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:55:00'],
+    ],
+], ['auxiliary_heat_power' => 'kW'], $debugNow);
+expect_same(0.0, $auxiliaryHeat['auxiliary_heat_power_now'], 'zero is a valid current auxiliary heating power');
+expect_same(1, $auxiliaryHeat['auxiliary_heat_periods']['24h']['starts'], 'auxiliary heating counts observed zero-to-positive transitions');
+expect_same(0.4167, round($auxiliaryHeat['auxiliary_heat_periods']['24h']['electricity_kwh'], 4),
+    'auxiliary heating energy converts kW samples using the five-minute integration convention');
+expect_same('2026-01-02 11:55:00', $auxiliaryHeat['auxiliary_heat_power_timestamp'],
+    'current auxiliary heating power exposes the source time');
+$auxiliaryHeatGap = nibe_dashboard_performance_metrics([
+    'auxiliary_heat_power' => [
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 10:45:00'],
+        ['raw_value' => '2', 'source_timestamp' => '2026-01-02 11:50:01'],
+    ],
+], ['auxiliary_heat_power' => 'kW'], $debugNow);
+expect_same(null, $auxiliaryHeatGap['auxiliary_heat_periods']['24h']['starts'],
+    'auxiliary heating does not infer a start across a gap longer than one hour');
+
 $emptyDebug = nibe_dashboard_performance_metrics([], [], $debugNow);
+expect_same(null, $emptyDebug['auxiliary_heat_power_now'], 'unmapped auxiliary heating power is unavailable');
+expect_same(true, in_array(['ok' => false, 'message' => 'Elektrisch bijverwarmingsvermogen gekoppeld'],
+    $emptyDebug['debug']['auxiliary_heat']['power_now'], true), 'unavailable auxiliary heat explains missing mapping');
 $unavailableChecks = [
     $emptyDebug['debug']['cop_now'], $emptyDebug['debug']['delta_t_now'],
     $emptyDebug['debug']['runtime'], $emptyDebug['debug']['frequency_distribution'],

@@ -130,7 +130,9 @@ tellermeting getoond.
 
 Voor het bekende myUplink-apparaat worden elektrisch vermogen (bron-ID 32486
 of 13) en de ontdooistatus (bron-ID 44703) automatisch gekoppeld wanneer ze
-beschikbaar zijn. Warmtevermogen wordt gekoppeld aan een uniek meetpunt met
+beschikbaar zijn. Elektrisch bijverwarmingsvermogen wordt gekoppeld aan
+bron-ID 43084 of aan een uniek meetpunt met de naam `Additional heat power` en
+eenheid W of kW. Warmtevermogen wordt gekoppeld aan een uniek meetpunt met
 de naam `Heat capacity (EB101)` en een eenheid W of kW. Het eerder genoemde
 meetpunt-ID 598 is een lokaal ID, geen bron-ID. Bij meerdere passende
 meetpunten is een expliciete rolconfiguratie nodig. De prestatie-inzichten
@@ -163,10 +165,15 @@ intervallen met gaten van meer dan een uur worden niet als bedrijfstijd gerekend
 Extra rollen kunnen optioneel worden gekoppeld via `NIBE_DASHBOARD_ROLE_MAP`,
 een JSON-object waarvan de waarden de lokale **Meetpunt-ID's** zijn die in het
 uitgeklapte meetpuntenoverzicht staan. Ondersteunde rollen zijn
-`electric_power`, `heat_power`, `electric_energy`, `heat_energy` en `defrost`.
-Bijvoorbeeld: `{"electric_power":"12","heat_power":"13","electric_energy":"14","heat_energy":"15","defrost":"16"}`.
+`electric_power`, `heat_power`, `auxiliary_heat_power`, `electric_energy`,
+`heat_energy` en `defrost`. Bijvoorbeeld:
+`{"electric_power":"12","heat_power":"13","auxiliary_heat_power":"17","electric_energy":"14","heat_energy":"15","defrost":"16"}`.
 Gebruik alleen meetpunten waarvan betekenis en eenheid bekend zijn; zonder
 geldige invoer blijft de betreffende prestatie als niet beschikbaar getoond.
+De bijverwarming toont het actuele vermogen, het aantal waargenomen starts
+(overgang van nul naar positief vermogen) en het geschatte elektriciteitsverbruik
+voor 24 uur, 7 dagen en 30 dagen. De energie gebruikt vijf minuten per
+opgeslagen vermogensmeting; ontbrekende intervallen worden niet aangevuld.
 De grafiek bevat ook graadminuten, compressorfrequentie en buitentemperatuur,
 wanneer die metingen beschikbaar zijn.
 

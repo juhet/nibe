@@ -129,7 +129,7 @@ try {
     }
 
     $historyRoles = ['frequency', 'supply', 'return', 'calculated_supply', 'hot_water', 'outdoor', 'degree_minutes',
-        'electric_power', 'heat_power', 'electric_energy', 'heat_energy', 'defrost'];
+        'electric_power', 'heat_power', 'auxiliary_heat_power', 'electric_energy', 'heat_energy', 'defrost'];
     $historyIds = [];
     foreach ($historyRoles as $role) {
         if (isset($defaultRoleMapping[$role])) {
@@ -172,7 +172,7 @@ try {
              ORDER BY COALESCE(source_timestamp, collected_at) DESC, id DESC
              LIMIT 1'
         );
-        foreach (['defrost', 'electric_energy', 'heat_energy'] as $role) {
+        foreach (['defrost', 'electric_energy', 'heat_energy', 'auxiliary_heat_power'] as $role) {
             if (!isset($historyIds[$role])) {
                 continue;
             }
@@ -226,6 +226,9 @@ $performance += [
     'cop_by_outdoor_temperature' => [],
     'data_coverage' => [],
     'defrost_periods' => [],
+    'auxiliary_heat_power_now' => null,
+    'auxiliary_heat_power_timestamp' => null,
+    'auxiliary_heat_periods' => [],
 ];
 $selectedCyclePeriod = $_GET['cycle_period'] ?? '24h';
 if (!is_string($selectedCyclePeriod) || !in_array($selectedCyclePeriod, ['24h', '7d', '30d'], true)) {
@@ -613,6 +616,25 @@ $chartPointIds = array_values(array_filter(array_map(
                     <?php endforeach; ?>
                 </ul>
             </details>
+            <h3>Elektrische bijverwarming</h3>
+            <div class="metric-grid">
+                <div class="metric">Bijverwarmingsvermogen nu<strong><?= $performance['auxiliary_heat_power_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['auxiliary_heat_power_now'], 2, ',', '') . ' kW') ?></strong>
+                    <?= nibe_debug($performance['auxiliary_heat_power_now'], $performance['debug']['auxiliary_heat']['power_now'] ?? []) ?>
+                    <?php if ($performance['auxiliary_heat_power_timestamp'] !== null): ?>
+                        <small>Meetmoment: <time class="local-time" datetime="<?= nibe_escape($performance['auxiliary_heat_power_timestamp']) ?>"><?= nibe_escape($performance['auxiliary_heat_power_timestamp']) ?> UTC</time></small>
+                    <?php endif; ?>
+                </div>
+                <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
+                    <?php $auxiliaryHeat = $performance['auxiliary_heat_periods'][$period] ?? []; ?>
+                    <div class="metric">Waargenomen starts bijverwarming <?= nibe_escape($label) ?><strong><?= ($auxiliaryHeat['starts'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape((string) $auxiliaryHeat['starts']) ?></strong>
+                        <?= nibe_debug($auxiliaryHeat['starts'] ?? null, $performance['debug']['auxiliary_heat']['periods'][$period]['starts'] ?? []) ?>
+                    </div>
+                    <div class="metric">Elektriciteit bijverwarming <?= nibe_escape($label) ?><strong><?= ($auxiliaryHeat['electricity_kwh'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($auxiliaryHeat['electricity_kwh'], 2, ',', '') . ' kWh') ?></strong>
+                        <?= nibe_debug($auxiliaryHeat['electricity_kwh'] ?? null, $performance['debug']['auxiliary_heat']['periods'][$period]['electricity_kwh'] ?? []) ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <p class="muted">Starts zijn waargenomen overgangen van 0 naar positief vermogen (tussen opeenvolgende metingen maximaal één uur uit elkaar). Verbruik schat vijf minuten per opgeslagen vermogensmeting; ontbrekende intervallen worden niet aangevuld.</p>
             <h3>COP naar buitentemperatuur — beschikbare historie (maximaal 30 dagen)</h3>
             <div class="settings-table-wrap">
                 <table class="settings-table">

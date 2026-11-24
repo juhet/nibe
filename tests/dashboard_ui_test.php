@@ -10,7 +10,7 @@ file_put_contents($directory . '/app/config.php', <<<'PHP'
 function nibe_env(string $name, ?string $default = null): ?string
 {
     return $name === 'NIBE_DASHBOARD_ROLE_MAP'
-        ? '{"electric_power":"9","heat_power":"4","frequency":"5","supply":"1","return":"2","hot_water":"6"}'
+        ? '{"electric_power":"9","heat_power":"4","auxiliary_heat_power":"10","frequency":"5","supply":"1","return":"2","hot_water":"6"}'
         : $default;
 }
 
@@ -44,6 +44,7 @@ class DashboardTestStatement
             ['5', '44701', '0', 'Hz', $now - 300],
             ['6', '40013', '46', '°C', $now - 300],
             ['9', '998', '1000', 'W', $now - 300],
+            ['10', '43084', '0', 'kW', $now - 300],
         ];
         if (str_contains($this->sql, 'FROM nibe_measurement_points')) {
             return array_map(static fn (array $point): array => [
@@ -70,6 +71,10 @@ class DashboardTestStatement
                 ['9', '1000', $cycleStart],
                 ['9', '1000', $cycleStart + 300],
                 ['9', '1000', $cycleStart + 600],
+                ['10', '0', $cycleStart - 300],
+                ['10', '2', $cycleStart],
+                ['10', '0', $cycleStart + 300],
+                ['10', '0', $now - 300],
                 ['4', '4', $cycleStart],
                 ['4', '4', $cycleStart + 300],
                 ['4', '4', $cycleStart + 600],
@@ -111,6 +116,8 @@ try {
     if (!str_contains($html, '<th>COP</th>')
         || !str_contains($html, '<td>4,00</td>')
         || !str_contains($html, 'Verwarming + Warm water')
+        || !str_contains($html, 'Elektrische bijverwarming')
+        || !str_contains($html, 'Elektriciteit bijverwarming 24 uur')
         || !str_contains($html, 'Toon 24-uursgrafiek')
         || str_contains($html, 'COP vereist elektrisch vermogen')
         || str_contains($html, 'Koppelingen voor prestatie-inzichten')) {
