@@ -1,10 +1,11 @@
 # NIBE-dashboard
 
-Een alleen-lezen dashboard uit [DESIGN.txt](DESIGN.txt). De pagina toont
-verbindingsstatus, de vaste belangrijkste meetpunten en kerncijfers over de
-compressor en temperatuurverschillen, plus een uitklapbaar overzicht van alle
-ontdekte meetpunten met hun laatst opgeslagen waarden. Handmatige
-instellingenwijzigingen kunnen lokaal in een apart logboek worden bijgehouden.
+Een alleen-lezen dashboard uit [DESIGN.txt](DESIGN.txt). `index.php` is het
+dagelijkse, visuele overzicht met systeemstatus, actuele waarden, energie en
+onderbouwde inzichten. Via **Analyse** en **Technisch** zijn de bestaande
+prestatie-inzichten, grafieken en meetpunten beschikbaar in `index_old.php`.
+Handmatige instellingenwijzigingen kunnen lokaal in een apart logboek worden bijgehouden
+via de technische pagina.
 De afzonderlijke gegevensverzamelaar ontdekt systemen en meetpunten via
 myUplink en slaat hun actuele waarden op. De pagina start zelf geen verzameling
 en vult ontbrekende metingen niet aan met verzonnen waarden.

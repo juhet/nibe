@@ -3,6 +3,7 @@
 $directory = sys_get_temp_dir() . '/nibe-dashboard-' . bin2hex(random_bytes(8));
 mkdir($directory);
 mkdir($directory . '/app');
+copy(__DIR__ . '/../index_old.php', $directory . '/index_old.php');
 copy(__DIR__ . '/../index.php', $directory . '/index.php');
 copy(__DIR__ . '/../app/dashboard.php', $directory . '/app/dashboard.php');
 file_put_contents($directory . '/app/config.php', <<<'PHP'
@@ -16,6 +17,9 @@ function nibe_env(string $name, ?string $default = null): ?string
 
 function nibe_database(): DashboardTestDatabase
 {
+    if (getenv('NIBE_TEST_DB_FAIL') === '1') {
+        throw new RuntimeException('Simulated database error.');
+    }
     return new DashboardTestDatabase();
 }
 
@@ -47,6 +51,9 @@ class DashboardTestStatement
             ['10', '43084', '0', 'kW', $now - 300],
         ];
         if (str_contains($this->sql, 'FROM nibe_measurement_points')) {
+            if (getenv('NIBE_TEST_EMPTY_DATA') === '1') {
+                return [];
+            }
             return array_map(static fn (array $point): array => [
                 'measurement_point_id' => $point[0], 'source_point_id' => $point[1],
                 'raw_value' => $point[2], 'unit' => $point[3],
@@ -99,7 +106,7 @@ try {
         throw new ErrorException($message, 0, $severity);
     });
     ob_start();
-    include $directory . '/index.php';
+    include $directory . '/index_old.php';
     $html = ob_get_clean();
     restore_error_handler();
 
@@ -141,10 +148,50 @@ try {
         || !preg_match('/Warmtevermogen nu<strong>Niet beschikbaar<\/strong>(?:(?!<\/div>).)*✗ Meting is 90[1-9] seconden oud/s', $html)) {
         throw new RuntimeException('Current KPI debug blocks do not show their failed validation.');
     }
+    file_put_contents($directory . '/render-home.php', '<?php include __DIR__ . \'/index.php\';');
+    $renderHome = static function (?array $environment = null) use ($directory): array {
+        $process = proc_open(
+            [PHP_BINARY, $directory . '/render-home.php'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            $environment
+        );
+        if (!is_resource($process)) {
+            throw new RuntimeException('The visual dashboard could not be started.');
+        }
+        fclose($pipes[0]);
+        $output = stream_get_contents($pipes[1]);
+        $error = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return [$output, $error, proc_close($process)];
+    };
+    [$homeHtml, $homeError, $exitCode] = $renderHome();
+    if ($exitCode !== 0 || !str_contains($homeHtml, 'Energie · Overzicht')
+        || !str_contains($homeHtml, 'Systeemoverzicht')
+        || !str_contains($homeHtml, 'id="timeline-slider"')
+        || !str_contains($homeHtml, 'data-panel="warmtepomp"')
+        || !str_contains($homeHtml, 'COP nu')
+        || str_contains($homeHtml, 'Meetpunt-ID:')
+        || str_contains($homeHtml, 'Alle meetpunten (')
+        || !str_contains($homeHtml, 'Niet beschikbaar')) {
+        throw new RuntimeException('The default dashboard must show visual system controls and avoid exposing raw measurement lists: ' . $homeError);
+    }
+    [$emptyHtml, $emptyError, $emptyExitCode] = $renderHome(['NIBE_TEST_EMPTY_DATA' => '1']);
+    if ($emptyExitCode !== 0 || !str_contains($emptyHtml, 'Er zijn nog geen meetpunten of metingen beschikbaar.')) {
+        throw new RuntimeException('The visual dashboard must explain when measurements have not been collected: ' . $emptyError);
+    }
+    [$databaseErrorHtml, $databaseError, $databaseExitCode] = $renderHome(['NIBE_TEST_DB_FAIL' => '1']);
+    if ($databaseExitCode !== 0 || !str_contains($databaseErrorHtml, 'De database is nog niet beschikbaar.')) {
+        throw new RuntimeException('The visual dashboard must explain when the database is unavailable: ' . $databaseError);
+    }
 } finally {
     unlink($directory . '/app/config.php');
     unlink($directory . '/app/dashboard.php');
+    unlink($directory . '/index_old.php');
     unlink($directory . '/index.php');
+    if (file_exists($directory . '/render-home.php')) unlink($directory . '/render-home.php');
     rmdir($directory . '/app');
     rmdir($directory);
 }
