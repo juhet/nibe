@@ -1207,6 +1207,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         $defrostPeriods[$period] = [
             'heat_sources' => $hasPeriodData && $defrostCycles !== [] ? $heatSources : null,
             'count' => $hasPeriodData ? $defrostStarts : null,
+            'start_times' => $hasPeriodData ? $defrostStartTimes : [],
             'seconds' => $hasPeriodData ? $defrostSeconds : null,
             'average_duration_seconds' => $hasPeriodData && $defrostDurations !== []
                 ? array_sum($defrostDurations) / count($defrostDurations)

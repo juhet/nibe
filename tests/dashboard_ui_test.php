@@ -11,7 +11,7 @@ file_put_contents($directory . '/app/config.php', <<<'PHP'
 function nibe_env(string $name, ?string $default = null): ?string
 {
     return $name === 'NIBE_DASHBOARD_ROLE_MAP'
-        ? '{"electric_power":"9","heat_power":"4","auxiliary_heat_power":"10","frequency":"5","supply":"1","return":"2","hot_water":"6"}'
+        ? '{"electric_power":"9","heat_power":"4","auxiliary_heat_power":"10","frequency":"5","supply":"1","return":"2","hot_water":"6","defrost":"11"}'
         : $default;
 }
 
@@ -49,6 +49,7 @@ class DashboardTestStatement
             ['6', '40013', '46', '°C', $now - 300],
             ['9', '998', '1000', 'W', $now - 300],
             ['10', '43084', '0', 'kW', $now - 300],
+            ['11', '44703', '0', '', $now - 300],
         ];
         if (getenv('NIBE_TEST_STALE_READING') === '1') {
             $points[4][4] = $now - 3600;
@@ -97,6 +98,20 @@ class DashboardTestStatement
                 ['9', '1000', $now - 300],
                 ['4', '3', $now - 901],
             ];
+            $defrostStarts = [];
+            for ($defrost = 0; $defrost < 12; $defrost++) {
+                $defrostStarts[] = $now - (23 - 2 * $defrost) * 3600;
+            }
+            for ($time = $now - 86400 - 300; $time <= $now; $time += 300) {
+                $active = false;
+                foreach ($defrostStarts as $start) {
+                    if ($time >= $start && $time < $start + 600) {
+                        $active = true;
+                        break;
+                    }
+                }
+                $events[] = ['11', $active ? '1' : '0', $time];
+            }
             return array_map(static fn (array $event): array => [
                 'measurement_point_id' => $event[0], 'raw_value' => $event[1],
                 'source_timestamp' => gmdate('Y-m-d H:i:s', $event[2]),
@@ -184,6 +199,9 @@ try {
         || str_contains($homeHtml, 'Alle meetpunten (')
         || !str_contains($homeHtml, 'Niet beschikbaar')) {
         throw new RuntimeException('The default dashboard must show visual system controls and avoid exposing raw measurement lists: ' . $homeError);
+    }
+    if (substr_count($homeHtml, 'class="timeline-segment defrost"') !== 12) {
+        throw new RuntimeException('The home timeline must show all 12 observed defrosts in the last 24 hours.');
     }
     [$staleHtml, $staleError, $staleExitCode] = $renderHome(['NIBE_TEST_STALE_READING' => '1']);
     if ($staleExitCode !== 0
