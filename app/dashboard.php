@@ -1042,6 +1042,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         $defrostStartTimes = [];
         $defrostSeconds = 0;
         $defrostDurations = [];
+        $defrostCycles = [];
         $defrostOutdoorValues = [];
         $activeDefrostStart = null;
         $activeDefrostSeconds = 0;
@@ -1098,6 +1099,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
                 if ($next['value'] <= 0) {
                     if ($activeDefrostStart >= $start) {
                         $defrostDurations[] = $activeDefrostSeconds;
+                        $defrostCycles[] = [$activeDefrostStart, $next['time']];
                     }
                     $activeDefrostStart = null;
                     $activeDefrostSeconds = 0;
@@ -1148,6 +1150,9 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         $debug['defrost'][$period]['average_interval_seconds'] = array_merge($defrostChecks, [
             $check(count($defrostStartTimes) >= 2, 'Waargenomen ontdooistarts: ' . count($defrostStartTimes) . ' (minimaal 2)'),
         ]);
+        $debug['defrost'][$period]['heat_sources'] = array_merge($defrostChecks, [
+            $check($defrostDurations !== [], 'Voltooide ontdooicycli: ' . count($defrostDurations) . ' (minimaal 1)'),
+        ]);
         $debug['defrost'][$period]['longest_duration_seconds'] = array_merge($defrostChecks, [
             $check($defrostDurations !== [], 'Voltooide ontdooicycli: ' . count($defrostDurations) . ' (minimaal 1)'),
         ]);
@@ -1161,7 +1166,46 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             $check($periodRunningSeconds > 0, 'Waargenomen compressordraaitijd: ' . $periodRunningSeconds . ' seconden (meer dan 0)'),
             $check($defrostSeconds <= $periodRunningSeconds, 'Ontdooitijd (' . $defrostSeconds . ' s) is niet groter dan draaitijd (' . $periodRunningSeconds . ' s)'),
         ]);
+        $heatSources = ['heating' => 0, 'hot_water' => 0, 'auxiliary' => 0, 'unknown' => 0];
+        $valueAt = static function (array $series, int $time): ?float {
+            $found = null;
+            foreach ($series as $sample) {
+                if ($sample['time'] <= $time + 300 && $sample['time'] >= $time - 900
+                    && ($found === null || abs($sample['time'] - $time) < abs($found['time'] - $time))) {
+                    $found = $sample;
+                }
+            }
+            return $found === null ? null : $found['value'];
+        };
+        foreach ($defrostCycles as [$cycleStart, $cycleEnd]) {
+            $auxiliaryActive = false;
+            foreach ($samples['auxiliary_heat_power'] as $sample) {
+                if ($sample['time'] >= $cycleStart && $sample['time'] <= $cycleEnd && $sample['value'] > 0) {
+                    $auxiliaryActive = true;
+                    break;
+                }
+            }
+            if ($auxiliaryActive) {
+                $heatSources['auxiliary']++;
+                continue;
+            }
+            $drops = [];
+            foreach (['heating' => 'return', 'hot_water' => 'hot_water'] as $source => $role) {
+                $before = $valueAt($samples[$role], $cycleStart);
+                $after = $valueAt($samples[$role], $cycleEnd);
+                if ($before !== null && $after !== null && $before - $after >= 0.5) {
+                    $drops[$source] = $before - $after;
+                }
+            }
+            if ($drops === []) {
+                $heatSources['unknown']++;
+            } else {
+                arsort($drops);
+                $heatSources[array_key_first($drops)]++;
+            }
+        }
         $defrostPeriods[$period] = [
+            'heat_sources' => $hasPeriodData && $defrostCycles !== [] ? $heatSources : null,
             'count' => $hasPeriodData ? $defrostStarts : null,
             'seconds' => $hasPeriodData ? $defrostSeconds : null,
             'average_duration_seconds' => $hasPeriodData && $defrostDurations !== []

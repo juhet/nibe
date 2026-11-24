@@ -362,6 +362,11 @@ $performance = nibe_dashboard_performance_metrics([
     ], '2025-12-26 11:00:00', '2026-01-02 12:00:00'),
     'supply' => [['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:58:00']],
     'return' => [['raw_value' => '35', 'source_timestamp' => '2026-01-02 11:59:00']],
+    'hot_water' => [
+        ['raw_value' => '50', 'source_timestamp' => '2026-01-02 11:20:00'],
+        ['raw_value' => '48', 'source_timestamp' => '2026-01-02 11:30:00'],
+    ],
+    'auxiliary_heat_power' => [['raw_value' => '1000', 'source_timestamp' => '2026-01-02 11:36:00']],
 ], [
     'electric_power' => 'W',
     'heat_power' => 'kW',
@@ -468,6 +473,8 @@ foreach (['0', '1-20', '20-30', '30-40', '40-50', '50-60', '60+'] as $band) {
     expect_same(true, $allFrequencyBands['frequency_seconds'][$band] > 0, 'frequency band ' . $band . ' accumulates time');
 }
 expect_same(2, $performance['defrost_periods']['24h']['count'], 'defrost transitions are counted');
+expect_same(['heating' => 0, 'hot_water' => 1, 'auxiliary' => 1, 'unknown' => 0],
+    $performance['defrost_periods']['24h']['heat_sources'], 'defrost cycles are attributed to a heat source');
 expect_same(900, $performance['defrost_periods']['24h']['seconds'], 'defrost time is measured from observed samples');
 expect_same(450, $performance['defrost_periods']['24h']['average_duration_seconds'], 'average duration uses completed defrost cycles');
 expect_same(600, $performance['defrost_periods']['24h']['longest_duration_seconds'], 'longest defrost uses completed cycles only');
