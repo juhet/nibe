@@ -470,6 +470,53 @@ $staleDefrost = nibe_dashboard_performance_metrics([
 expect_same(null, $staleDefrost['defrost_periods']['30d']['average_interval_seconds'],
     'stale defrost samples do not produce an average interval');
 
+$sparseDefrostObservations = [
+    strtotime('2026-12-26 11:55:00 UTC') => [
+        'raw_value' => '0',
+        'source_timestamp' => '2026-12-26 11:55:00',
+    ],
+];
+foreach ([
+    ['2026-12-26 12:00:00', '2026-12-27 12:00:00'],
+    ['2027-01-01 11:55:00', '2027-01-01 17:15:00'],
+    ['2027-01-02 06:00:00', '2027-01-02 12:00:00'],
+] as [$start, $end]) {
+    for ($time = strtotime($start . ' UTC'), $last = strtotime($end . ' UTC'); $time <= $last; $time += 300) {
+        $timestamp = gmdate('Y-m-d H:i:s', $time);
+        $sparseDefrostObservations[$time] = ['raw_value' => '0', 'source_timestamp' => $timestamp];
+    }
+}
+foreach ([
+    '2027-01-02 10:00:00' => '1',
+    '2027-01-02 10:10:00' => '0',
+    '2027-01-02 11:00:00' => '1',
+    '2027-01-02 11:10:00' => '0',
+] as $timestamp => $value) {
+    $sparseDefrostObservations[strtotime($timestamp . ' UTC')] = [
+        'raw_value' => $value,
+        'source_timestamp' => $timestamp,
+    ];
+}
+ksort($sparseDefrostObservations);
+$sparseDefrost = nibe_dashboard_performance_metrics([
+    'defrost' => array_values($sparseDefrostObservations),
+], [], new DateTimeImmutable('2027-01-02 12:00:00', new DateTimeZone('UTC')));
+expect_same(46.9, round($sparseDefrost['defrost_periods']['24h']['coverage_percentage'], 1),
+    'defrost coverage exposes the observed portion of a partially covered period');
+expect_same(21.0, round($sparseDefrost['defrost_periods']['7d']['coverage_percentage'], 1),
+    'seven-day defrost coverage remains below the 80% availability threshold');
+expect_same(2, $sparseDefrost['defrost_periods']['24h']['count'],
+    'observed defrosts remain available below 80% coverage');
+expect_same(2, $sparseDefrost['defrost_periods']['7d']['count'],
+    'seven-day defrosts remain available below 80% coverage');
+expect_same(600, $sparseDefrost['defrost_periods']['24h']['seconds'],
+    'defrost duration only includes observed short-gap intervals');
+expect_same(true, in_array([
+    'ok' => true,
+    'message' => 'Datadekking: 46,9% (informatief; intervallen van maximaal 1 uur tellen mee)',
+], $sparseDefrost['debug']['defrost']['24h']['count'], true),
+    'defrost coverage is diagnostic rather than an availability requirement');
+
 $debugNow = new DateTimeImmutable('2026-01-02 12:00:00', new DateTimeZone('UTC'));
 $debugMetrics = nibe_dashboard_performance_metrics([
     'supply' => [['raw_value' => '40', 'source_timestamp' => '2026-01-02 11:50:00']],
