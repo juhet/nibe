@@ -29,22 +29,43 @@ foreach ($defaultRoleMapping as $role => $measurementId) {
         'raw' => is_string($raw) ? $raw : null,
         'unit' => (string) ($roleUnits[$role] ?? ''),
         'fresh' => $freshness['status'] === 'live',
+        'age_seconds' => $freshness['age_seconds'],
+        'displayable' => $freshness['age_seconds'] !== null
+            && $freshness['age_seconds'] >= 0
+            && $freshness['age_seconds'] <= 86400
+            && $raw !== null,
         'timestamp' => $timestamp,
     ];
 }
 $formatNumber = static fn (?float $value, int $digits = 1): string => $value === null
     ? 'Niet beschikbaar'
     : number_format($value, $digits, ',', '.');
-$formatReading = static function (string $role, int $digits = 1) use ($readings, $formatNumber): string {
+$formatReading = static function (string $role) use ($readings): string {
     $reading = $readings[$role] ?? null;
-    if ($reading === null || !$reading['fresh'] || $reading['value'] === null) {
+    if ($reading === null || !$reading['displayable'] || $reading['raw'] === null) {
         return 'Niet beschikbaar';
     }
-    return $formatNumber($reading['value'], $digits) . ($reading['unit'] !== '' ? ' ' . $reading['unit'] : '');
+    return $reading['raw'] . ($reading['unit'] !== '' ? ' ' . $reading['unit'] : '');
+};
+$readingIndicator = static function (string $role) use ($readings): string {
+    $reading = $readings[$role] ?? null;
+    $class = $reading === null || $reading['raw'] === null || $reading['age_seconds'] === null
+        || $reading['age_seconds'] < 0
+        ? 'missing'
+        : (!$reading['displayable'] ? 'unavailable' : ($reading['fresh'] ? 'fresh' : 'stale'));
+    $label = match ($class) {
+        'fresh' => 'Meting jonger dan 15 minuten',
+        'stale' => 'Laatste waarde, ouder dan 15 minuten',
+        'unavailable' => 'Laatste meting is ouder dan 24 uur',
+        default => $reading !== null && $reading['raw'] !== null
+            ? 'Meetwaarde heeft geen geldige meettijd'
+            : 'Geen meting beschikbaar',
+    };
+    return '<span class="reading-status ' . $class . '" role="img" aria-label="' . $label . '" title="' . $label . '"></span>';
 };
 $powerKw = static function (string $role) use ($readings): ?float {
     $reading = $readings[$role] ?? null;
-    if ($reading === null || !$reading['fresh'] || $reading['value'] === null) {
+    if ($reading === null || !$reading['displayable'] || $reading['value'] === null) {
         return null;
     }
     if (($role === 'electric_power' && $reading['value'] <= 0)
@@ -215,6 +236,10 @@ $eventItems = array_slice($eventItems, 0, 3);
         .node-icon { display: block; color: #9dcaff; font-size: 1.3rem; margin-bottom: .45rem; }
         .node-label { color: var(--muted); font-size: .78rem; display: block; }
         .node-value { display: block; margin-top: .2rem; font-size: 1.15rem; font-weight: 650; }
+        .reading-status { display: inline-block; width: .5rem; height: .5rem; margin-left: .35rem; border-radius: 50%; vertical-align: .08rem; background: #8492a6; }
+        .reading-status.fresh { background: #39c887; box-shadow: 0 0 8px #39c88780; }
+        .reading-status.stale { background: #f0a43b; box-shadow: 0 0 8px #f0a43b70; }
+        .reading-status.unavailable, .reading-status.missing { background: #8492a6; }
         .node.outdoor { grid-column: 1; grid-row: 1; }
         .node.pump { grid-column: 2; grid-row: 1 / 3; min-height: 190px; text-align: center; display: grid; place-content: center; background: linear-gradient(150deg, #1a3c58, #12253a); border-color: #77bdff38; box-shadow: inset 0 0 45px #4f9bd51a, 0 12px 40px #0003; }
         .pump-symbol { width: 74px; height: 74px; margin: 0 auto .8rem; border: 1px solid #8dc8ff5c; border-radius: 1.4rem; display: grid; place-items: center; color: #91c8ff; font-size: 2rem; background: linear-gradient(145deg, #244c6a, #142d45); box-shadow: 0 0 32px #5db2ff20; }
@@ -397,27 +422,27 @@ $eventItems = array_slice($eventItems, 0, 3);
                     <span class="flow-label water-label">Tapwater</span>
                     <button class="node outdoor" data-panel="buitenunit" data-target="index_old.php#chart-title">
                         <span class="node-icon" aria-hidden="true">☼</span><span class="node-label">Buitenlucht</span>
-                        <span class="node-value" data-reading="outdoor"><?= nibe_escape($formatReading('outdoor')) ?></span>
+                        <span class="node-value" data-reading="outdoor"><?= nibe_escape($formatReading('outdoor')) ?><?= $readingIndicator('outdoor') ?></span>
                     </button>
                     <button class="node pump" data-panel="warmtepomp" data-target="index_old.php#performance-title">
                         <span class="pump-symbol" aria-hidden="true"><span class="fan"></span><span class="pump-brand">NIBE</span></span><span class="node-label">Warmtepomp</span>
                         <span class="node-value"><?= nibe_escape($systemStatus) ?></span>
-                        <span class="node-label">Compressor <span data-reading="frequency"><?= nibe_escape($formatReading('frequency')) ?></span></span>
+                        <span class="node-label">Compressor <span data-reading="frequency"><?= nibe_escape($formatReading('frequency')) ?><?= $readingIndicator('frequency') ?></span></span>
                     </button>
                     <button class="node home" data-panel="woning" data-target="index_old.php#chart-title">
                         <span class="house-symbol" aria-hidden="true"><span></span></span><span class="node-label">Woning</span>
-                        <span class="node-value" data-reading="indoor"><?= nibe_escape($formatReading('indoor')) ?></span>
+                        <span class="node-value" data-reading="indoor"><?= nibe_escape($formatReading('indoor')) ?><?= $readingIndicator('indoor') ?></span>
                     </button>
                     <button class="node water" data-panel="tapwater" data-target="index_old.php#chart-title">
                         <span class="boiler-symbol" aria-hidden="true"><span></span></span><span class="node-label">Tapwater</span>
-                        <span class="node-value" data-reading="hot_water"><?= nibe_escape($formatReading('hot_water')) ?></span>
+                        <span class="node-value" data-reading="hot_water"><?= nibe_escape($formatReading('hot_water')) ?><?= $readingIndicator('hot_water') ?></span>
                     </button>
                 </div>
                 <div class="kpis" id="energy">
                     <div class="kpi"><div class="kpi-label">COP nu</div><div class="kpi-value" data-reading="cop"><?= nibe_escape($formatNumber($currentCop, 2)) ?></div></div>
-                    <div class="kpi"><div class="kpi-label">Warmtevermogen</div><div class="kpi-value" data-reading="heat_power"><?= $heatKw === null ? 'Niet beschikbaar' : nibe_escape($formatNumber($heatKw, 2)) ?> <small><?= $heatKw === null ? '' : 'kW' ?></small></div></div>
-                    <div class="kpi"><div class="kpi-label">Binnentemperatuur</div><div class="kpi-value" data-reading="indoor"><?= nibe_escape($formatReading('indoor')) ?></div></div>
-                    <div class="kpi"><div class="kpi-label">Elektrisch vermogen</div><div class="kpi-value" data-reading="electric_power"><?= $electricKw === null ? 'Niet beschikbaar' : nibe_escape($formatNumber($electricKw, 2)) ?> <small><?= $electricKw === null ? '' : 'kW' ?></small></div></div>
+                    <div class="kpi"><div class="kpi-label">Warmtevermogen<?= $readingIndicator('heat_power') ?></div><div class="kpi-value" data-reading="heat_power"><?= $heatKw === null ? 'Niet beschikbaar' : nibe_escape($formatNumber($heatKw, 2)) ?> <small><?= $heatKw === null ? '' : 'kW' ?></small></div></div>
+                    <div class="kpi"><div class="kpi-label">Binnentemperatuur<?= $readingIndicator('indoor') ?></div><div class="kpi-value" data-reading="indoor"><?= nibe_escape($formatReading('indoor')) ?></div></div>
+                    <div class="kpi"><div class="kpi-label">Elektrisch vermogen<?= $readingIndicator('electric_power') ?></div><div class="kpi-value" data-reading="electric_power"><?= $electricKw === null ? 'Niet beschikbaar' : nibe_escape($formatNumber($electricKw, 2)) ?> <small><?= $electricKw === null ? '' : 'kW' ?></small></div></div>
                 </div>
                 <div id="reading-data" hidden data-point-ids="<?= nibe_escape(json_encode($measurementIds, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)) ?>" data-cycles="<?= nibe_escape(json_encode(array_values(array_filter($timelineSegments, static fn (array $segment): bool => isset($segment['start']))), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)) ?>"></div>
             </section>
