@@ -98,11 +98,19 @@ class DashboardTestStatement
                 ['9', '1000', $now - 300],
                 ['4', '3', $now - 901],
             ];
-            $events[] = ['11', '0', $now - 86400 - 300];
+            $defrostStarts = [];
             for ($defrost = 0; $defrost < 12; $defrost++) {
-                $start = $now - (23 - 2 * $defrost) * 3600;
-                $events[] = ['11', '1', $start];
-                $events[] = ['11', '0', $start + 600];
+                $defrostStarts[] = $now - (23 - 2 * $defrost) * 3600;
+            }
+            for ($time = $now - 86400 - 300; $time <= $now; $time += 300) {
+                $active = false;
+                foreach ($defrostStarts as $start) {
+                    if ($time >= $start && $time < $start + 600) {
+                        $active = true;
+                        break;
+                    }
+                }
+                $events[] = ['11', $active ? '1' : '0', $time];
             }
             return array_map(static fn (array $event): array => [
                 'measurement_point_id' => $event[0], 'raw_value' => $event[1],
