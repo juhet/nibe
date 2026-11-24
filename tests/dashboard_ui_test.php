@@ -178,6 +178,25 @@ try {
         || !str_contains($homeHtml, 'Niet beschikbaar')) {
         throw new RuntimeException('The default dashboard must show visual system controls and avoid exposing raw measurement lists: ' . $homeError);
     }
+    if (!preg_match('/data-cycles="([^"]+)"/', $homeHtml, $cycleAttribute)) {
+        throw new RuntimeException('Replay must include the observed compressor cycles.');
+    }
+    $replayCycles = json_decode(html_entity_decode($cycleAttribute[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'), true, 512, JSON_THROW_ON_ERROR);
+    if (count($replayCycles) !== 1 || $replayCycles[0]['kind'] !== 'both'
+        || $replayCycles[0]['start'] >= $replayCycles[0]['end']
+        || !str_contains($homeHtml, 'class="pump-symbol"')
+        || !str_contains($homeHtml, 'class="house-symbol"')
+        || !str_contains($homeHtml, 'class="boiler-symbol"')
+        || !str_contains($homeHtml, 'data-operation="unknown"')
+        || !str_contains($homeHtml, 'Binnentemperatuur')
+        || !str_contains($homeHtml, 'Inzichten uit je systeem')) {
+        throw new RuntimeException('The dashboard must expose observed replay modes, product illustrations and evidence-based insights.');
+    }
+    if (str_contains($html, 'Datum/tijd (UTC)') || str_contains($html, 'Datum en tijd (UTC)')
+        || preg_match('/<time class="local-time"[^>]*>[^<]*UTC<\/time>/', $html)
+        || !str_contains($html, 'Elektriciteit sinds <time class="local-time"')) {
+        throw new RuntimeException('Dashboard time displays must use local-time placeholders and label the actual energy period.');
+    }
     [$emptyHtml, $emptyError, $emptyExitCode] = $renderHome(['NIBE_TEST_EMPTY_DATA' => '1']);
     if ($emptyExitCode !== 0 || !str_contains($emptyHtml, 'Er zijn nog geen meetpunten of metingen beschikbaar.')) {
         throw new RuntimeException('The visual dashboard must explain when measurements have not been collected: ' . $emptyError);

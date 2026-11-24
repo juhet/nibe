@@ -383,7 +383,7 @@ if ($nibeDashboardDataOnly ?? false) {
                         Laatste geslaagde verzameling:
                         <?= $connection['last_success_at'] === null
                             ? 'Geen'
-                            : '<time class="local-time" datetime="' . nibe_escape($connection['last_success_at']) . '">' . nibe_escape($connection['last_success_at']) . '</time>' ?>
+                            : '<time class="local-time" datetime="' . nibe_escape($connection['last_success_at']) . '">Tijd laden…</time>' ?>
                     </li>
                 <?php endforeach; ?>
             </ul>
@@ -430,7 +430,7 @@ if ($nibeDashboardDataOnly ?? false) {
                             </p>
                             <p class="status<?= $statusClass ?>"><?= nibe_escape($statusLabel) ?></p>
                             <?php if (!$isEmpty && is_string($freshnessTimestamp)): ?>
-                                <small>Laatste meting: <time class="local-time" datetime="<?= nibe_escape($freshnessTimestamp) ?>"><?= nibe_escape($freshnessTimestamp) ?> UTC</time></small>
+                                <small>Laatste meting: <time class="local-time" datetime="<?= nibe_escape($freshnessTimestamp) ?>">Tijd laden…</time></small>
                             <?php endif; ?>
                             <button type="button" class="important-chart-toggle"
                                     data-point-id="<?= nibe_escape($defaultRoleMapping[$role]) ?>"
@@ -566,8 +566,8 @@ if ($nibeDashboardDataOnly ?? false) {
                         <tbody>
                             <?php foreach ($periodCycles as $cycle): ?>
                                 <tr>
-                                    <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['start'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['start'])) ?> UTC</time></td>
-                                    <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['end'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['end'])) ?> UTC</time></td>
+                                    <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['start'])) ?>">Tijd laden…</time></td>
+                                    <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['end'])) ?>">Tijd laden…</time></td>
                                     <td><?= nibe_escape(number_format($cycle['duration_seconds'] / 60, 1, ',', '') . ' min') ?></td>
                                     <td><?= $cycle['cop'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['cop'], 2, ',', '')) ?></td>
                                     <td><?= $cycle['operation'] === null ? 'Onbekend' : nibe_escape($cycle['operation']) ?></td>
@@ -602,10 +602,10 @@ if ($nibeDashboardDataOnly ?? false) {
                 <div class="metric">COP nu<strong><?= $performance['cop_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['cop_now'], 2, ',', '')) ?></strong>
                     <?= nibe_debug($performance['cop_now'], $performance['debug']['cop_now']) ?>
                     <?php if ($performance['cop_now_timestamp'] !== null): ?>
-                        <small>Meetmoment: <time class="local-time" datetime="<?= nibe_escape($performance['cop_now_timestamp']) ?>"><?= nibe_escape($performance['cop_now_timestamp']) ?> UTC</time></small>
+                        <small>Meetmoment: <time class="local-time" datetime="<?= nibe_escape($performance['cop_now_timestamp']) ?>">Tijd laden…</time></small>
                     <?php endif; ?>
                 </div>
-                <div class="metric">COP vandaag<strong><?= ($performance['periods']['today']['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['cop'], 2, ',', '')) ?></strong><?= nibe_debug($performance['periods']['today']['cop'] ?? null, $performance['debug']['periods']['today']['cop']) ?></div>
+                <div class="metric">COP sinds <time class="local-time" datetime="<?= $now->format('Y-m-d 00:00:00') ?>">tijd laden…</time><strong><?= ($performance['periods']['today']['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['cop'], 2, ',', '')) ?></strong><?= nibe_debug($performance['periods']['today']['cop'] ?? null, $performance['debug']['periods']['today']['cop']) ?></div>
                 <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
                     <div class="metric">COP <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['cop'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['cop'], 2, ',', '')) ?></strong><?= nibe_debug($performance['periods'][$period]['cop'] ?? null, $performance['debug']['periods'][$period]['cop']) ?></div>
                 <?php endforeach; ?>
@@ -614,8 +614,8 @@ if ($nibeDashboardDataOnly ?? false) {
                 <p class="warning" role="status">COP nu wijkt meer dan 20% af van het gemiddelde van de afgelopen 24 uur.</p>
             <?php endif; ?>
             <div class="kpis">
-                <div class="kpi">Elektriciteit vandaag (UTC)<strong><?= ($performance['periods']['today']['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['electricity'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods']['today']['electricity'] ?? null, $performance['debug']['periods']['today']['electricity']) ?></div>
-                <div class="kpi">Warmte vandaag (UTC)<strong><?= ($performance['periods']['today']['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['heat'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods']['today']['heat'] ?? null, $performance['debug']['periods']['today']['heat']) ?></div>
+                <div class="kpi">Elektriciteit sinds <time class="local-time" datetime="<?= $now->format('Y-m-d 00:00:00') ?>">tijd laden…</time><strong><?= ($performance['periods']['today']['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['electricity'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods']['today']['electricity'] ?? null, $performance['debug']['periods']['today']['electricity']) ?></div>
+                <div class="kpi">Warmte sinds <time class="local-time" datetime="<?= $now->format('Y-m-d 00:00:00') ?>">tijd laden…</time><strong><?= ($performance['periods']['today']['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods']['today']['heat'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods']['today']['heat'] ?? null, $performance['debug']['periods']['today']['heat']) ?></div>
                 <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
                     <div class="kpi">Elektriciteit <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['electricity'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['electricity'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods'][$period]['electricity'] ?? null, $performance['debug']['periods'][$period]['electricity']) ?></div>
                     <div class="kpi">Warmte <?= nibe_escape($label) ?><strong><?= ($performance['periods'][$period]['heat'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['periods'][$period]['heat'], 2, ',', '') . ' kWh') ?></strong><?= nibe_debug($performance['periods'][$period]['heat'] ?? null, $performance['debug']['periods'][$period]['heat']) ?></div>
@@ -624,7 +624,7 @@ if ($nibeDashboardDataOnly ?? false) {
             <details class="coverage">
                 <summary>Datadekking en werkelijke meetperiode</summary>
                 <ul>
-                    <?php foreach (['today' => 'vandaag (UTC)', '24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
+                    <?php foreach (['today' => 'huidige periode', '24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
                         <?php foreach (['electricity' => 'Elektriciteit', 'heat' => 'Warmte'] as $metric => $metricLabel): ?>
                             <?php $coverage = $performance['data_coverage'][$period][$metric] ?? null; ?>
                             <li>
@@ -634,8 +634,8 @@ if ($nibeDashboardDataOnly ?? false) {
                                     · <?= nibe_escape(number_format($coverage['coverage_percentage'], 1, ',', '') . '% geschatte meetdekking, op basis van 5 minuten per opgeslagen vermogensmeting') ?>
                                 <?php endif; ?>
                                 <?php if ($coverage !== null && $coverage['first_timestamp'] !== null): ?>
-                                    · <time class="local-time" datetime="<?= nibe_escape($coverage['first_timestamp']) ?>"><?= nibe_escape($coverage['first_timestamp']) ?> UTC</time>
-                                    – <time class="local-time" datetime="<?= nibe_escape($coverage['last_timestamp']) ?>"><?= nibe_escape($coverage['last_timestamp']) ?> UTC</time>
+                                    · <time class="local-time" datetime="<?= nibe_escape($coverage['first_timestamp']) ?>">Tijd laden…</time>
+                                    – <time class="local-time" datetime="<?= nibe_escape($coverage['last_timestamp']) ?>">Tijd laden…</time>
                                 <?php else: ?> · geen metingen in periode<?php endif; ?>
                             </li>
                         <?php endforeach; ?>
@@ -647,7 +647,7 @@ if ($nibeDashboardDataOnly ?? false) {
                 <div class="metric">Bijverwarmingsvermogen nu<strong><?= $performance['auxiliary_heat_power_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['auxiliary_heat_power_now'], 2, ',', '') . ' kW') ?></strong>
                     <?= nibe_debug($performance['auxiliary_heat_power_now'], $performance['debug']['auxiliary_heat']['power_now'] ?? []) ?>
                     <?php if ($performance['auxiliary_heat_power_timestamp'] !== null): ?>
-                        <small>Meetmoment: <time class="local-time" datetime="<?= nibe_escape($performance['auxiliary_heat_power_timestamp']) ?>"><?= nibe_escape($performance['auxiliary_heat_power_timestamp']) ?> UTC</time></small>
+                        <small>Meetmoment: <time class="local-time" datetime="<?= nibe_escape($performance['auxiliary_heat_power_timestamp']) ?>">Tijd laden…</time></small>
                     <?php endif; ?>
                 </div>
                 <?php foreach (['24h' => '24 uur', '7d' => '7 dagen', '30d' => '30 dagen'] as $period => $label): ?>
@@ -676,9 +676,9 @@ if ($nibeDashboardDataOnly ?? false) {
                                 <td><?= ($bucket['cop'] ?? null) === null ? 'Te weinig betrouwbare data' : nibe_escape(number_format($bucket['cop'], 2, ',', '')) ?></td>
                                 <td>
                                     <?php if (($bucket['first_time'] ?? null) !== null): ?>
-                                        <time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['first_time'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['first_time'])) ?> UTC</time>
+                                        <time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['first_time'])) ?>">Tijd laden…</time>
                                         –
-                                        <time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['last_time'])) ?>"><?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['last_time'])) ?> UTC</time>
+                                        <time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $bucket['last_time'])) ?>">Tijd laden…</time>
                                     <?php else: ?>Geen gekoppelde metingen<?php endif; ?>
                                 </td>
                             </tr>
@@ -789,7 +789,7 @@ if ($nibeDashboardDataOnly ?? false) {
                         <?= $isEmpty ? 'Ontbrekend' : ($isStale ? 'Verouderd' : 'Live') . $ageLabel ?>
                     </p>
                     <?php if (!$isEmpty && is_string($freshnessTimestamp)): ?>
-                        <small>Laatste meting: <time class="local-time" datetime="<?= nibe_escape($freshnessTimestamp) ?>"><?= nibe_escape($freshnessTimestamp) ?> UTC</time></small>
+                        <small>Laatste meting: <time class="local-time" datetime="<?= nibe_escape($freshnessTimestamp) ?>">Tijd laden…</time></small>
                     <?php endif; ?>
                 </article>
             <?php endforeach; ?>
@@ -810,12 +810,12 @@ if ($nibeDashboardDataOnly ?? false) {
             <?php else: ?>
                 <div class="settings-table-wrap">
                     <table class="settings-table">
-                        <thead><tr><th>Datum/tijd (UTC)</th><th>Instelling</th><th>Wijziging</th><th>Opmerking</th><th>Acties</th></tr></thead>
+                        <thead><tr><th>Datum/tijd</th><th>Instelling</th><th>Wijziging</th><th>Opmerking</th><th>Acties</th></tr></thead>
                         <tbody>
                             <?php foreach ($settingChanges as $entry): ?>
                                 <?php $entryDate = substr((string) $entry['changed_at'], 0, 16); ?>
                                 <tr>
-                                    <td><time class="local-time" datetime="<?= nibe_escape($entry['changed_at']) ?>"><?= nibe_escape($entry['changed_at']) ?> UTC</time></td>
+                                    <td><time class="local-time" datetime="<?= nibe_escape($entry['changed_at']) ?>">Tijd laden…</time></td>
                                     <td><?= nibe_escape($entry['setting']) ?></td>
                                     <td><?= $entry['old_value'] === null ? '' : nibe_escape($entry['old_value']) . ' → ' ?><?= nibe_escape($entry['new_value']) ?></td>
                                     <td><?= nl2br(nibe_escape($entry['note'])) ?></td>
@@ -849,7 +849,7 @@ if ($nibeDashboardDataOnly ?? false) {
                     <label>Instelling<input name="setting" maxlength="191" required></label>
                     <label>Nieuwe waarde<input name="new_value" maxlength="1000" required></label>
                     <label>Vorige waarde (optioneel)<input name="old_value" maxlength="1000"></label>
-                    <label>Datum en tijd (UTC)<input type="datetime-local" name="changed_at" value="<?= nibe_escape(gmdate('Y-m-d\TH:i')) ?>" required></label>
+                    <label>Datum en tijd<input type="datetime-local" name="changed_at" required></label>
                     <label>Opmerking (optioneel)<textarea name="note" maxlength="5000"></textarea></label>
                     <div class="settings-actions-row">
                         <button type="submit">Opslaan</button>
