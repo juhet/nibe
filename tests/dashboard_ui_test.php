@@ -35,7 +35,27 @@ class DashboardTestStatement
 {
     public function __construct(private string $sql) {}
     public function execute(array $parameters = []): void {}
-    public function fetch(): bool { return false; }
+    public function fetch(): array|false
+    {
+        if (str_contains($this->sql, 'FROM nibe_weather_observations') && getenv('NIBE_TEST_NO_WEATHER') !== '1') {
+            return [
+                'source_timestamp' => gmdate('Y-m-d H:i:s'),
+                'raw_data' => json_encode([
+                    'current' => [
+                        'temperature_2m' => 8.5, 'relative_humidity_2m' => 85,
+                        'apparent_temperature' => 6.2, 'precipitation' => 0.1,
+                        'weather_code' => 61, 'wind_speed_10m' => 12.4,
+                    ],
+                    'current_units' => [
+                        'temperature_2m' => '°C', 'relative_humidity_2m' => '%',
+                        'apparent_temperature' => '°C', 'precipitation' => 'mm',
+                        'weather_code' => 'wmo code', 'wind_speed_10m' => 'km/h',
+                    ],
+                ], JSON_THROW_ON_ERROR),
+            ];
+        }
+        return false;
+    }
     public function fetchAll(): array
     {
         $now = time();
@@ -139,6 +159,11 @@ try {
         || preg_match_all('/<details\b[^>]*class="debug"[^>]*>/', $html) !== $unavailable) {
         throw new RuntimeException('Each unavailable KPI must have exactly one collapsed debug disclosure; available KPIs must have none.');
     }
+    if (!str_contains($html, 'Weer in Grootegast')
+        || !str_contains($html, 'Regen')
+        || !str_contains($html, '8,5 °C')) {
+        throw new RuntimeException('The detailed dashboard must show stored Grootegast weather observations.');
+    }
     if (!str_contains($html, 'kW&lt;script&gt;') || str_contains($html, 'kW<script>')) {
         throw new RuntimeException('Debug output must escape measurement units.');
     }
@@ -195,6 +220,8 @@ try {
         || !str_contains($homeHtml, 'id="timeline-slider"')
         || !str_contains($homeHtml, 'data-panel="warmtepomp"')
         || !str_contains($homeHtml, 'COP nu')
+        || !str_contains($homeHtml, 'Weer in Grootegast')
+        || !str_contains($homeHtml, '8,5 °C')
         || str_contains($homeHtml, 'Meetpunt-ID:')
         || str_contains($homeHtml, 'Alle meetpunten (')
         || !str_contains($homeHtml, 'Niet beschikbaar')) {
@@ -243,6 +270,10 @@ try {
     [$emptyHtml, $emptyError, $emptyExitCode] = $renderHome(['NIBE_TEST_EMPTY_DATA' => '1']);
     if ($emptyExitCode !== 0 || !str_contains($emptyHtml, 'Er zijn nog geen meetpunten of metingen beschikbaar.')) {
         throw new RuntimeException('The visual dashboard must explain when measurements have not been collected: ' . $emptyError);
+    }
+    [$noWeatherHtml, $noWeatherError, $noWeatherExitCode] = $renderHome(['NIBE_TEST_NO_WEATHER' => '1']);
+    if ($noWeatherExitCode !== 0 || !str_contains($noWeatherHtml, 'Weerdata wordt zichtbaar na de eerste geslaagde verzameling.')) {
+        throw new RuntimeException('The visual dashboard must explain when no weather observation has been collected: ' . $noWeatherError);
     }
     [$databaseErrorHtml, $databaseError, $databaseExitCode] = $renderHome(['NIBE_TEST_DB_FAIL' => '1']);
     if ($databaseExitCode !== 0 || !str_contains($databaseErrorHtml, 'De database is nog niet beschikbaar.')) {

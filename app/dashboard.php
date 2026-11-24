@@ -124,6 +124,72 @@ function nibe_dashboard_measurement_freshness(?string $timestamp, DateTimeImmuta
     ];
 }
 
+function nibe_dashboard_weather(?array $observation): ?array
+{
+    if ($observation === null || !is_string($observation['source_timestamp'] ?? null)
+        || !is_string($observation['raw_data'] ?? null)) {
+        return null;
+    }
+
+    try {
+        $timestamp = (new DateTimeImmutable($observation['source_timestamp'], new DateTimeZone('UTC')))
+            ->setTimezone(new DateTimeZone('UTC'))
+            ->format('Y-m-d H:i:s');
+        $data = json_decode($observation['raw_data'], true, 16, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        return null;
+    }
+    if (!is_array($data) || !is_array($data['current'] ?? null) || !is_array($data['current_units'] ?? null)) {
+        return null;
+    }
+
+    $current = $data['current'];
+    $units = $data['current_units'];
+    $fields = [
+        'temperature_2m', 'relative_humidity_2m', 'apparent_temperature',
+        'precipitation', 'weather_code', 'wind_speed_10m',
+    ];
+    foreach ($fields as $field) {
+        if (!isset($current[$field]) || !is_numeric($current[$field])
+            || !is_finite((float) $current[$field]) || !is_string($units[$field] ?? null)) {
+            return null;
+        }
+    }
+
+    return [
+        'timestamp' => $timestamp,
+        'temperature' => (float) $current['temperature_2m'],
+        'temperature_unit' => $units['temperature_2m'],
+        'apparent_temperature' => (float) $current['apparent_temperature'],
+        'humidity' => (float) $current['relative_humidity_2m'],
+        'humidity_unit' => $units['relative_humidity_2m'],
+        'precipitation' => (float) $current['precipitation'],
+        'precipitation_unit' => $units['precipitation'],
+        'wind_speed' => (float) $current['wind_speed_10m'],
+        'wind_speed_unit' => $units['wind_speed_10m'],
+        'weather_code' => (int) $current['weather_code'],
+        'is_day' => (int) ($current['is_day'] ?? 0) === 1,
+    ];
+}
+
+function nibe_dashboard_weather_condition(int $code): string
+{
+    return match ($code) {
+        0 => 'Onbewolkt',
+        1 => 'Overwegend helder',
+        2 => 'Half bewolkt',
+        3 => 'Bewolkt',
+        45, 48 => 'Mist',
+        51, 53, 55, 56, 57 => 'Motregen',
+        61, 63, 65, 66, 67 => 'Regen',
+        71, 73, 75, 77 => 'Sneeuw',
+        80, 81, 82 => 'Regenbuien',
+        85, 86 => 'Sneeuwbuien',
+        95, 96, 99 => 'Onweer',
+        default => 'Weerconditie onbekend',
+    };
+}
+
 function nibe_dashboard_suggestions(array $performance): array
 {
     $suggestions = [];

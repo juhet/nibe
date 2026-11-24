@@ -28,13 +28,17 @@ technische pagina tonen hun werkelijke begingrens in lokale tijd.
 
 Maak een database en een databasegebruiker aan bij de hostingprovider.
 Importeer daarna [`database/schema.sql`](database/schema.sql) in die database,
-bijvoorbeeld via phpMyAdmin. Het schema maakt zes tabellen aan: `nibe_connections`,
-`nibe_devices`, `nibe_measurement_points`, `nibe_observations` en
-`nibe_collection_runs` en `nibe_setting_changes`. Iedere tabel gebruikt zo
-dezelfde herkenbare `nibe_` prefix. Importeer het schema één keer in een lege
+bijvoorbeeld via phpMyAdmin. Het schema maakt zeven tabellen aan:
+`nibe_connections`, `nibe_devices`, `nibe_measurement_points`,
+`nibe_observations`, `nibe_collection_runs`, `nibe_setting_changes` en
+`nibe_weather_observations`. Iedere tabel gebruikt dezelfde herkenbare `nibe_`
+prefix. Importeer het schema één keer in een lege
 database. Bij een bestaande installatie voer je ook
 [`database/settings_log.sql`](database/settings_log.sql) uit om alleen de
 nieuwe logboektabel aan te maken.
+De databasegebruiker moet tabellen mogen aanmaken; de collector gebruikt dit
+recht om de weerobservatietabel automatisch toe te voegen aan bestaande
+installaties.
 
 Het instellingenlogboek is handmatig: gebruik **+ Instelling vastleggen** om
 een wijziging toe te voegen, of bewerk/verwijder een bestaande regel. Datums
@@ -106,7 +110,11 @@ naar de eigen database en wijzigt geen warmtepompinstellingen.
 Na het importeren van het schema en het instellen van de databasevariabelen
 opent de startpagina. Zonder opgeslagen meetpunten toont de pagina dat er nog
 geen gegevens zijn. Na een geslaagde collector-aanroep tonen beide dashboards
-dezelfde laatst opgeslagen meetwaarden voor hun gekoppelde meetpunten. Het
+dezelfde laatst opgeslagen meetwaarden voor hun gekoppelde meetpunten. De
+collector haalt ook de actuele weerwaarneming voor Grootegast op via Open-Meteo
+en slaat deze op in `nibe_weather_observations`. Deze tabel wordt automatisch
+aangemaakt bij de eerste collector-aanroep; hiervoor is geen handmatige
+migratie nodig. Open-Meteo vereist geen API-sleutel. Het
 nieuwe dashboard toont waarden tot
 24 uur oud; een gekleurde stip geeft aan wanneer een waarde ouder is dan 15
 minuten. Waarden ouder dan 24 uur worden als niet beschikbaar getoond. Een oude

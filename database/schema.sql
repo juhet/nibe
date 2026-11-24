@@ -77,3 +77,13 @@ CREATE TABLE nibe_setting_changes (
     PRIMARY KEY (id),
     KEY ix_nibe_setting_changes_changed (changed_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE nibe_weather_observations (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    source_timestamp DATETIME(6) NOT NULL,
+    collected_at DATETIME(6) NOT NULL,
+    raw_data JSON NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_nibe_weather_source_time (source_timestamp),
+    KEY ix_nibe_weather_collected (collected_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

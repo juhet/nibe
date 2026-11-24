@@ -2,6 +2,83 @@
 
 require_once __DIR__ . '/config.php';
 
+final class NibeOpenMeteoClient
+{
+    private const API_URL = 'https://api.open-meteo.com/v1/forecast';
+    private const LATITUDE = '53.17';
+    private const LONGITUDE = '6.27';
+    private const CURRENT_FIELDS = 'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day';
+
+    public function __construct(private readonly ?Closure $request = null)
+    {
+    }
+
+    public function getCurrent(): array
+    {
+        $url = self::API_URL . '?' . http_build_query([
+            'latitude' => self::LATITUDE,
+            'longitude' => self::LONGITUDE,
+            'current' => self::CURRENT_FIELDS,
+            'timezone' => 'UTC',
+        ]);
+        if ($this->request !== null) {
+            $body = ($this->request)($url);
+        } else {
+            $handle = curl_init($url);
+            curl_setopt_array($handle, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_FOLLOWLOCATION => false,
+                CURLOPT_HTTPHEADER => ['Accept: application/json'],
+            ]);
+            $body = curl_exec($handle);
+            $status = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+            $curlError = curl_errno($handle);
+            curl_close($handle);
+            if ($body === false || $curlError !== 0 || $status < 200 || $status >= 300) {
+                throw new RuntimeException('Could not retrieve weather data.');
+            }
+        }
+
+        if (!is_string($body)) {
+            throw new RuntimeException('Open-Meteo returned invalid data.');
+        }
+        try {
+            $response = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            throw new RuntimeException('Open-Meteo returned invalid JSON.');
+        }
+        if (!is_array($response)
+            || !is_array($response['current'] ?? null)
+            || !is_array($response['current_units'] ?? null)) {
+            throw new RuntimeException('Open-Meteo returned an invalid response.');
+        }
+
+        $current = $response['current'];
+        $sourceTimestamp = nibe_source_timestamp($current['time'] ?? null);
+        if ($sourceTimestamp === null) {
+            throw new RuntimeException('Open-Meteo returned an invalid observation time.');
+        }
+        foreach ([
+            'temperature_2m', 'relative_humidity_2m', 'apparent_temperature',
+            'precipitation', 'weather_code', 'wind_speed_10m', 'is_day',
+        ] as $field) {
+            if (!isset($current[$field]) || !is_numeric($current[$field]) || !is_finite((float) $current[$field])) {
+                throw new RuntimeException('Open-Meteo returned incomplete weather data.');
+            }
+        }
+
+        return [
+            'source_timestamp' => $sourceTimestamp,
+            'raw_data' => json_encode(
+                ['current' => $current, 'current_units' => $response['current_units']],
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            ),
+        ];
+    }
+}
+
 final class NibeMyUplinkClient
 {
     private const API_BASE_URL = 'https://api.myuplink.com/v2';
@@ -247,7 +324,22 @@ function nibe_collection_error(Throwable $exception): string
         : 'Collection failed due to a database or internal error.';
 }
 
-function nibe_collect(PDO $database, NibeMyUplinkClient $client): array
+function nibe_ensure_weather_schema(PDO $database): void
+{
+    $database->exec(
+        'CREATE TABLE IF NOT EXISTS nibe_weather_observations (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            source_timestamp DATETIME(6) NOT NULL,
+            collected_at DATETIME(6) NOT NULL,
+            raw_data JSON NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_nibe_weather_source_time (source_timestamp),
+            KEY ix_nibe_weather_collected (collected_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+}
+
+function nibe_collect(PDO $database, NibeMyUplinkClient $client, ?NibeOpenMeteoClient $weatherClient = null): array
 {
     $databaseName = $database->query('SELECT DATABASE()')->fetchColumn();
     if (!is_string($databaseName) || $databaseName === '') {
@@ -265,8 +357,10 @@ function nibe_collect(PDO $database, NibeMyUplinkClient $client): array
     $runId = null;
     $connectionId = null;
     $counts = ['devices' => 0, 'points' => 0, 'observations' => 0];
+    $weatherCollected = false;
 
     try {
+        nibe_ensure_weather_schema($database);
         $database->exec("INSERT INTO nibe_collection_runs (started_at, result) VALUES (UTC_TIMESTAMP(6), 'running')");
         $runId = (int) $database->lastInsertId();
 
@@ -363,6 +457,19 @@ function nibe_collect(PDO $database, NibeMyUplinkClient $client): array
         }
 
         $database->commit();
+        try {
+            $weather = ($weatherClient ?? new NibeOpenMeteoClient())->getCurrent();
+            $weatherInsert = $database->prepare(
+                'INSERT INTO nibe_weather_observations (source_timestamp, collected_at, raw_data)
+                 VALUES (?, UTC_TIMESTAMP(6), ?)
+                 ON DUPLICATE KEY UPDATE collected_at = VALUES(collected_at), raw_data = VALUES(raw_data)'
+            );
+            $weatherInsert->execute([$weather['source_timestamp'], $weather['raw_data']]);
+            $weatherCollected = true;
+        } catch (Throwable $weatherException) {
+            error_log('Weather collection failed: ' . nibe_collection_error($weatherException));
+        }
+
         $success = $database->prepare(
             'UPDATE nibe_connections SET last_success_at = UTC_TIMESTAMP(6), last_error = NULL WHERE id = ?'
         );
@@ -372,7 +479,7 @@ function nibe_collect(PDO $database, NibeMyUplinkClient $client): array
         );
         $finish->execute([$runId]);
 
-        return ['run_id' => $runId] + $counts;
+        return ['run_id' => $runId, 'weather_collected' => $weatherCollected] + $counts;
     } catch (Throwable $exception) {
         if ($database->inTransaction()) {
             $database->rollBack();

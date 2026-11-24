@@ -93,11 +93,25 @@ $defaultRoleMapping = [];
 $historyByRole = [];
 $performance = [];
 $roleUnits = [];
+$weather = null;
 $databaseReady = true;
 $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
 try {
     $database = nibe_database();
+    try {
+        $weatherStatement = $database->prepare(
+            'SELECT source_timestamp, raw_data
+             FROM nibe_weather_observations
+             ORDER BY source_timestamp DESC, id DESC
+             LIMIT 1'
+        );
+        $weatherStatement->execute();
+        $weather = nibe_dashboard_weather($weatherStatement->fetch() ?: null);
+    } catch (Throwable) {
+        $weather = null;
+    }
+
     $query = <<<'SQL'
         SELECT d.display_name AS device_name, d.source_device_id, p.name, p.unit, p.source_point_id, o.raw_value,
                p.id AS measurement_point_id, o.source_timestamp, o.collected_at
@@ -796,6 +810,24 @@ if ($nibeDashboardDataOnly ?? false) {
         </section>
         </details>
     <?php endif; ?>
+    <section class="panel weather-panel" aria-labelledby="weather-title">
+        <h2 id="weather-title">Weer in Grootegast</h2>
+        <?php if (!$databaseReady): ?>
+            <p class="muted">Weerdata is niet beschikbaar.</p>
+        <?php elseif ($weather === null): ?>
+            <p class="muted">Nog geen weerwaarneming opgeslagen. De collector haalt weerdata automatisch op.</p>
+        <?php else: ?>
+            <p><strong><?= nibe_escape(nibe_dashboard_weather_condition($weather['weather_code'])) ?></strong>
+                · <?= nibe_escape(number_format($weather['temperature'], 1, ',', '') . ' ' . $weather['temperature_unit']) ?></p>
+            <p class="muted">
+                Gevoelstemperatuur <?= nibe_escape(number_format($weather['apparent_temperature'], 1, ',', '') . ' ' . $weather['temperature_unit']) ?>
+                · Luchtvochtigheid <?= nibe_escape(number_format($weather['humidity'], 0, ',', '') . $weather['humidity_unit']) ?>
+                · Neerslag <?= nibe_escape(number_format($weather['precipitation'], 1, ',', '') . ' ' . $weather['precipitation_unit']) ?>
+                · Wind <?= nibe_escape(number_format($weather['wind_speed'], 1, ',', '') . ' ' . $weather['wind_speed_unit']) ?>
+            </p>
+            <small>Waargenomen: <time class="local-time" datetime="<?= nibe_escape($weather['timestamp']) ?>">Tijd laden…</time></small>
+        <?php endif; ?>
+    </section>
     <section class="panel" id="settings-log" aria-labelledby="settings-title">
         <h2 id="settings-title">Instellingenlogboek — handmatig</h2>
         <p class="muted">Leg zelf wijzigingen vast. Deze notities worden alleen lokaal in het dashboard opgeslagen; er worden nooit instellingen naar de warmtepomp geschreven.</p>

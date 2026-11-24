@@ -47,6 +47,31 @@ expect_same('stale', nibe_dashboard_measurement_freshness('2026-01-02 11:44:59',
     'measurements older than fifteen minutes are stale');
 expect_same('missing', nibe_dashboard_measurement_freshness(null, $now)['status'],
     'missing timestamps do not appear live');
+$weather = nibe_dashboard_weather([
+    'source_timestamp' => '2026-01-02 11:00:00',
+    'raw_data' => json_encode([
+        'current' => [
+            'temperature_2m' => 3.2,
+            'relative_humidity_2m' => 84,
+            'apparent_temperature' => 0.8,
+            'precipitation' => 0.1,
+            'weather_code' => 61,
+            'wind_speed_10m' => 12.4,
+        ],
+        'current_units' => [
+            'temperature_2m' => '°C',
+            'relative_humidity_2m' => '%',
+            'apparent_temperature' => '°C',
+            'precipitation' => 'mm',
+            'weather_code' => 'wmo code',
+            'wind_speed_10m' => 'km/h',
+        ],
+    ], JSON_THROW_ON_ERROR),
+]);
+expect_same(3.2, $weather['temperature'], 'weather observations are decoded for display');
+expect_same('Regen', nibe_dashboard_weather_condition($weather['weather_code']), 'WMO weather codes have Dutch descriptions');
+expect_same(null, nibe_dashboard_weather(['source_timestamp' => 'now', 'raw_data' => '{']),
+    'invalid weather JSON is unavailable');
 $noSuggestions = nibe_dashboard_suggestions([]);
 expect_same([], $noSuggestions, 'missing metrics do not produce unsupported suggestions');
 $cyclingSuggestionInput = [
