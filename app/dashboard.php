@@ -124,6 +124,62 @@ function nibe_dashboard_measurement_freshness(?string $timestamp, DateTimeImmuta
     ];
 }
 
+function nibe_dashboard_suggestions(array $performance): array
+{
+    $suggestions = [];
+    $compressor = $performance['compressor_periods']['24h'] ?? [];
+    if (($compressor['complete'] ?? false) === true
+        && is_numeric($compressor['starts'] ?? null)
+        && $compressor['starts'] > 72
+        && is_numeric($compressor['average_run_seconds'] ?? null)
+        && $compressor['average_run_seconds'] < 2400) {
+        $suggestions[] = [
+            'title' => 'Controleer frequent starten van de compressor',
+            'evidence' => sprintf(
+                'In de afgelopen 24 uur zijn %d starts en een gemiddelde runduur van %.0f minuten gemeten; de frequentiehistorie is compleet (%s%% dekking).',
+                $compressor['starts'],
+                $compressor['average_run_seconds'] / 60,
+                number_format((float) ($compressor['coverage_percentage'] ?? 0), 1, ',', '')
+            ),
+            'action' => 'De optimalisatiehandleiding noemt meer dan 2–3 starts per uur als mogelijk pendelgedrag. Controleer eerst of starts samenvallen met tapwaterbedrijf of ontdooien. Bespreek daarna eventueel de startgrens voor graadminuten; een lagere grens kan langere runs geven, maar ook meer temperatuurschommeling en ontdooien.',
+        ];
+    }
+
+    $auxiliaryHeat = $performance['auxiliary_heat_periods']['24h'] ?? [];
+    if (is_numeric($auxiliaryHeat['starts'] ?? null)
+        && $auxiliaryHeat['starts'] > 0
+        && is_numeric($auxiliaryHeat['electricity_kwh'] ?? null)
+        && $auxiliaryHeat['electricity_kwh'] > 0) {
+        $suggestions[] = [
+            'title' => 'Controleer wanneer de elektrische bijverwarming inschakelt',
+            'evidence' => sprintf(
+                'In de afgelopen 24 uur zijn %d inschakelmomenten waargenomen en is circa %.2f kWh bijverwarming geschat.',
+                $auxiliaryHeat['starts'],
+                $auxiliaryHeat['electricity_kwh']
+            ),
+            'action' => 'De verbruiksschatting is gebaseerd op vijf minuten per opgeslagen vermogensmeting. Vergelijk de momenten met buitentemperatuur, graadminuten en ontdooien voordat je een instelling beoordeelt; bijverwarming kan onder koude of ongunstige omstandigheden verwacht zijn.',
+        ];
+    }
+
+    $averageCop = $performance['periods']['24h']['cop'] ?? null;
+    $currentCop = $performance['cop_now'] ?? null;
+    if (($performance['cop_warning'] ?? false) === true
+        && is_numeric($currentCop)
+        && is_numeric($averageCop)) {
+        $suggestions[] = [
+            'title' => 'Onderzoek de afwijkende actuele COP',
+            'evidence' => sprintf(
+                'De actuele COP is %.2f; dat wijkt meer dan 20%% af van het gemeten 24-uursgemiddelde van %.2f.',
+                $currentCop,
+                $averageCop
+            ),
+            'action' => 'Vergelijk dit moment met buitentemperatuur, tapwaterbedrijf en ontdooien. Een korte afwijking ten opzichte van het eigen daggemiddelde bewijst geen structureel rendementsprobleem en is op zichzelf geen reden om instellingen te wijzigen.',
+        ];
+    }
+
+    return array_slice($suggestions, 0, 3);
+}
+
 function nibe_dashboard_setting_change_input(array $input): array
 {
     $setting = trim(is_string($input['setting'] ?? null) ? $input['setting'] : '');

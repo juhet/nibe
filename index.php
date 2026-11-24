@@ -230,6 +230,7 @@ $performance += [
     'auxiliary_heat_power_timestamp' => null,
     'auxiliary_heat_periods' => [],
 ];
+$suggestions = nibe_dashboard_suggestions($performance);
 $selectedCyclePeriod = $_GET['cycle_period'] ?? '24h';
 if (!is_string($selectedCyclePeriod) || !in_array($selectedCyclePeriod, ['24h', '7d', '30d'], true)) {
     $selectedCyclePeriod = '24h';
@@ -316,6 +317,10 @@ $chartPointIds = array_values(array_filter(array_map(
         .important-item .value { margin: .15rem 0; font-size: 1.25rem; }
         .important-chart { margin-top: .5rem; }
         .important-chart .chart { min-height: 0; }
+        .suggestions { margin-top: 1rem; padding: .75rem; background: #f3f6f8; border-radius: .5rem; }
+        .suggestions h3 { margin: 0; }
+        .suggestions ul { display: grid; gap: .75rem; margin-bottom: 0; padding-left: 1.25rem; }
+        .suggestions p { margin: .25rem 0 0; }
         .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .5rem 1rem; margin-top: 1rem; }
         .kpi { padding: .65rem .75rem; background: #eaf2f4; border-radius: .4rem; }
         .kpi strong { display: block; font-size: 1.2rem; }
@@ -432,6 +437,23 @@ $chartPointIds = array_values(array_filter(array_map(
                     <?php endif; ?>
                 <?php endforeach; ?>
             </div>
+            <section class="suggestions" aria-labelledby="suggestions-title" id="optimization-suggestions">
+                <h3 id="suggestions-title">Suggesties op basis van meetdata</h3>
+                <?php if ($suggestions === []): ?>
+                    <p class="muted">Geen onderbouwde suggesties op basis van de beschikbare meetdata. Dit betekent niet automatisch dat alle instellingen optimaal zijn.</p>
+                <?php else: ?>
+                    <ul>
+                        <?php foreach ($suggestions as $suggestion): ?>
+                            <li>
+                                <strong><?= nibe_escape($suggestion['title']) ?></strong>
+                                <p><?= nibe_escape($suggestion['evidence']) ?></p>
+                                <p><?= nibe_escape($suggestion['action']) ?></p>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <p class="muted">Dit zijn aandachtspunten, geen automatische instellingenadviezen. Beoordeel eerst de bedrijfsomstandigheden en verander instellingen één voor één.</p>
+                <?php endif; ?>
+            </section>
             <p class="muted">Compressor en warmteafgifte — afgelopen 24 uur</p>
             <div class="kpis">
                 <div class="kpi">Compressorstarts afgelopen 24 uur<strong><?= $performance['compressor_starts'] === null ? 'Niet beschikbaar' : nibe_escape((string) $performance['compressor_starts']) ?></strong><?= nibe_debug($performance['compressor_starts'], $performance['debug']['frequency']['24h']) ?></div>
