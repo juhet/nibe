@@ -503,6 +503,8 @@ $sparseDefrost = nibe_dashboard_performance_metrics([
 ], [], new DateTimeImmutable('2027-01-02 12:00:00', new DateTimeZone('UTC')));
 expect_same(46.9, round($sparseDefrost['defrost_periods']['24h']['coverage_percentage'], 1),
     'defrost coverage exposes the observed portion of a partially covered period');
+expect_same(21.0, round($sparseDefrost['defrost_periods']['7d']['coverage_percentage'], 1),
+    'seven-day defrost coverage remains below the 80% availability threshold');
 expect_same(2, $sparseDefrost['defrost_periods']['24h']['count'],
     'observed defrosts remain available below 80% coverage');
 expect_same(2, $sparseDefrost['defrost_periods']['7d']['count'],
