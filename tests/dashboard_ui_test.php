@@ -206,8 +206,11 @@ try {
     $replayCycles = json_decode(html_entity_decode($cycleAttribute[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'), true, 512, JSON_THROW_ON_ERROR);
     if (count($replayCycles) !== 1 || $replayCycles[0]['kind'] !== 'both'
         || $replayCycles[0]['start'] >= $replayCycles[0]['end']
-        || !str_contains($homeHtml, 'class="pump-symbol"')
-        || !str_contains($homeHtml, 'class="house-symbol"')
+        || !str_contains($homeHtml, '<svg class="outdoor-unit-illustration"')
+        || !str_contains($homeHtml, '<circle class="unit-fan"')
+        || !str_contains($homeHtml, '<svg class="home-illustration"')
+        || !str_contains($homeHtml, 'class="solar-panel"')
+        || !str_contains($homeHtml, 'class="front-window"')
         || !str_contains($homeHtml, 'class="boiler-symbol"')
         || !str_contains($homeHtml, 'data-operation="unknown"')
         || !str_contains($homeHtml, 'Binnentemperatuur')

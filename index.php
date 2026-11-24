@@ -299,14 +299,8 @@ $eventItems = array_slice($eventItems, 0, 3);
         .node, .node.pump { background: transparent; border: 1px solid transparent; box-shadow: none; text-align: center; display: grid; justify-items: center; align-content: center; min-width: 0; }
         .node:hover, .node:focus-visible, .node[aria-pressed="true"] { transform: scale(1.035); border-color: #8acbff36; box-shadow: 0 0 30px #4ba9ff22; background: #ffffff06; }
         .node-value { overflow-wrap: anywhere; }
-        .pump-symbol { position: relative; display: block; width: 120px; height: 145px; border-radius: 12px 12px 6px 6px; border: 1px solid #d5e5e9; background: linear-gradient(110deg, #96aeb8, #e1ecec 38%, #a6bac0); box-shadow: 8px 12px 22px #0007, inset -8px 0 12px #526b7455; }
-        .pump-symbol::after { content: ""; position: absolute; bottom: -7px; left: 10%; width: 80%; height: 7px; background: #607884; border-radius: 0 0 4px 4px; }
-        .fan { position: absolute; inset: 24px 18px 35px; border-radius: 50%; border: 5px solid #526d79; background: repeating-radial-gradient(circle, transparent 0 4px, #79949c 5px 6px), conic-gradient(from 25deg, #3a5662, #c0d0d1 18%, #3a5662 25%, #c0d0d1 43%, #3a5662 50%, #c0d0d1 68%, #3a5662 75%, #c0d0d1 93%, #3a5662); }
-        .pump-brand { position: absolute; bottom: 13px; left: 0; right: 0; font-size: .55rem; font-weight: 800; letter-spacing: .16em; color: #355361; }
-        .house-symbol { position: relative; display: block; width: 112px; height: 94px; margin: 35px auto 13px; background: linear-gradient(120deg, #9fb6bf, #d7e3e1 60%, #8da7b2); border-radius: 3px 3px 7px 7px; box-shadow: 8px 12px 22px #0006; }
-        .house-symbol::before { content: ""; position: absolute; width: 82px; height: 82px; top: -40px; left: 15px; transform: rotate(45deg); border-radius: 5px; background: linear-gradient(135deg, #577487 50%, transparent 50%); }
-        .house-symbol span { position: absolute; top: 24px; left: 19px; width: 33px; height: 34px; background: #ffc98c; border: 4px solid #dce8e7; box-shadow: 0 0 22px #ffbd7970; }
-        .house-symbol::after { content: ""; position: absolute; bottom: 0; right: 17px; width: 25px; height: 42px; border-radius: 3px 3px 0 0; background: #607c88; }
+        .outdoor-unit-illustration { display: block; width: clamp(80px, 13vw, 150px); height: auto; margin: 0 auto .8rem; filter: drop-shadow(5px 9px 8px #0007); }
+        .home-illustration { display: block; width: min(100%, 145px); height: auto; margin: .5rem auto; filter: drop-shadow(5px 8px 7px #0006); }
         .boiler-symbol { position: relative; display: block; width: 64px; height: 103px; margin: 5px auto 10px; border-radius: 50% / 12%; background: linear-gradient(90deg, #849da8, #e6eeee 45%, #9cb1b8); box-shadow: 7px 10px 20px #0006; }
         .boiler-symbol span { position: absolute; top: 40%; left: 37%; width: 26%; aspect-ratio: 1; border-radius: 50%; background: #81babb; box-shadow: 0 0 12px #72d8d2; }
         .flow { height: 4px; border: 0; border-radius: 99px; opacity: .14; background: #ffb66d; filter: drop-shadow(0 0 7px #ff9a42); overflow: hidden; transition: opacity .3s; }
@@ -355,10 +349,8 @@ $eventItems = array_slice($eventItems, 0, 3);
             .node.pump { grid-column: 2; grid-row: 1 / 3; min-height: 130px; }
             .node.home { grid-column: 3; grid-row: 1; }
             .node.water { grid-column: 3; grid-row: 2; }
-            .pump-symbol { width: 80px; height: 100px; border-radius: 8px; margin-bottom: .45rem; }
-            .fan { inset: 17px 12px 25px; }
-            .pump-brand { bottom: 7px; }
-            .house-symbol { transform: scale(.65); margin: 0 -12px -8px; }
+            .outdoor-unit-illustration { width: 78px; margin-bottom: .45rem; }
+            .home-illustration { width: min(100%, 88px); margin: .2rem auto; }
             .boiler-symbol { transform: scale(.7); margin: -10px 0 -8px; }
             .node { padding: .2rem; }
             .node-value, .node.pump .node-value { font-size: .83rem; }
@@ -425,12 +417,54 @@ $eventItems = array_slice($eventItems, 0, 3);
                         <span class="node-value" data-reading="outdoor"><?= nibe_escape($formatReading('outdoor')) ?><?= $readingIndicator('outdoor') ?></span>
                     </button>
                     <button class="node pump" data-panel="warmtepomp" data-target="index_old.php#performance-title">
-                        <span class="pump-symbol" aria-hidden="true"><span class="fan"></span><span class="pump-brand">NIBE</span></span><span class="node-label">Warmtepomp</span>
+                        <svg class="outdoor-unit-illustration" viewBox="0 0 160 128" aria-hidden="true" focusable="false">
+                            <path d="M22 18h105l14 9v82l-14 8H22a7 7 0 0 1-7-7V25a7 7 0 0 1 7-7Z" fill="#d4d9d7" stroke="#f0f3f0" stroke-width="2"/>
+                            <path d="m127 18 14 9v82l-14 8Z" fill="#aab5b5"/>
+                            <path d="M24 24h7v84h-7z" fill="#eef0ec" opacity=".8"/>
+                            <circle class="unit-fan" cx="77" cy="63" r="36" fill="#283940" stroke="#78888a" stroke-width="4"/>
+                            <circle cx="77" cy="63" r="29" fill="#344950" stroke="#a9b5b3" stroke-width="2"/>
+                            <g stroke="#829294" stroke-width="2" opacity=".85">
+                                <path d="m77 36v54m-27-27h54M58 44l38 38m0-38L58 82"/>
+                            </g>
+                            <circle cx="77" cy="63" r="7" fill="#aeb9b6"/>
+                            <rect x="119" y="46" width="5" height="13" rx="1" fill="#718083"/>
+                            <text x="114" y="94" fill="#52656a" font-size="7" font-weight="700" letter-spacing="1">NIBE</text>
+                            <path d="M32 117v5m83-5v5" stroke="#596b70" stroke-width="4" stroke-linecap="round"/>
+                        </svg><span class="node-label">Warmtepomp</span>
                         <span class="node-value"><?= nibe_escape($systemStatus) ?></span>
                         <span class="node-label">Compressor <span data-reading="frequency"><?= nibe_escape($formatReading('frequency')) ?><?= $readingIndicator('frequency') ?></span></span>
                     </button>
                     <button class="node home" data-panel="woning" data-target="index_old.php#chart-title">
-                        <span class="house-symbol" aria-hidden="true"><span></span></span><span class="node-label">Woning</span>
+                        <svg class="home-illustration" viewBox="0 0 160 130" aria-hidden="true" focusable="false">
+                            <path d="M61 52 102 24l48 30v65H61Z" fill="#a96e4f" stroke="#d3a078" stroke-width="2"/>
+                            <path d="m52 54 49-36 54 34-7 9-47-29-43 32Z" fill="#35414a" stroke="#69747a" stroke-width="2"/>
+                            <path d="m69 46 31-23 39 23-3 13-38-24-27 21Z" fill="#263d4d" stroke="#8ba1a5" stroke-width="2"/>
+                            <g class="solar-panel" fill="none" stroke="#92b9c9" stroke-width="1">
+                                <path d="m77 42 23-17m-12 20 24-17m-12 20 23-17M74 42l40 7m-28-15 41 7"/>
+                            </g>
+                            <path d="M113 20v-9h9v16" fill="#b9a58f" stroke="#e1d0b6" stroke-width="2"/>
+                            <path d="M74 65h20v22H74z" fill="#344c56" stroke="#d4a47b" stroke-width="2"/>
+                            <path d="M77 68h14v16H77z" fill="#b4ccd0"/>
+                            <path class="front-window" d="M100 72h38v38h-38z" fill="#172b32" stroke="#d3a078" stroke-width="3"/>
+                            <path d="M119 74v34m-17-17h34" stroke="#8ba4a3" stroke-width="2"/>
+                            <g stroke="#8b583e" stroke-width="1" opacity=".75">
+                                <path d="M62 64h36m-36 9h36m-36 9h36m-36 9h36m-36 9h36m-36 9h36"/>
+                                <path d="M72 61v3m14 0v9m-14 0v9m14 0v9m-14 0v9m14 0v9"/>
+                            </g>
+                            <path d="M27 8v108" stroke="#a8b2b1" stroke-width="2"/>
+                            <path d="M29 12h10v45H29z" fill="#e24f42"/>
+                            <path d="M29 12h10v15H29z" fill="#527eae"/>
+                            <path d="M29 27h10v15H29z" fill="#f3f0d9"/>
+                            <path d="M29 42h10v15H29z" fill="#4a8f69"/>
+                            <path d="M44 117h108" stroke="#68866c" stroke-width="3"/>
+                            <g fill="#4e7758">
+                                <circle cx="58" cy="111" r="9"/><circle cx="67" cy="114" r="7"/>
+                                <circle cx="143" cy="111" r="11"/><circle cx="134" cy="115" r="8"/>
+                            </g>
+                            <g fill="#94a86f">
+                                <circle cx="53" cy="110" r="3"/><circle cx="143" cy="108" r="3"/><circle cx="136" cy="113" r="2"/>
+                            </g>
+                        </svg><span class="node-label">Woning</span>
                         <span class="node-value" data-reading="indoor"><?= nibe_escape($formatReading('indoor')) ?><?= $readingIndicator('indoor') ?></span>
                     </button>
                     <button class="node water" data-panel="tapwater" data-target="index_old.php#chart-title">
