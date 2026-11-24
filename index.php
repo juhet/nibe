@@ -724,6 +724,10 @@ $chartPointIds = array_values(array_filter(array_map(
                 <div class="metric">Tijd sinds laatste defrost<strong><?= ($defrost['since_last_seconds'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['since_last_seconds'] / 3600, 1, ',', '') . ' uur') ?></strong><?= nibe_debug($defrost['since_last_seconds'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['since_last_seconds']) ?></div>
                 <div class="metric">Gemiddelde buitentemperatuur bij defrost<strong><?= ($defrost['average_outdoor'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['average_outdoor'], 1, ',', '') . ' ' . ($roleUnits['outdoor'] ?? '')) ?></strong><?= nibe_debug($defrost['average_outdoor'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['average_outdoor']) ?></div>
                 <div class="metric">Tijd tijdens draaien<strong><?= ($defrost['percent'] ?? null) === null ? 'Niet beschikbaar' : nibe_escape(number_format($defrost['percent'], 1, ',', '') . '%') ?></strong><?= nibe_debug($defrost['percent'] ?? null, $performance['debug']['defrost'][$selectedDefrostPeriod]['percent']) ?></div>
+                <?php $heatSources = $defrost['heat_sources'] ?? null; ?>
+                <?php foreach (['heating' => 'Warmtebron: verwarmingssysteem', 'hot_water' => 'Warmtebron: warm tapwater', 'auxiliary' => 'Warmtebron: elektrische bijverwarming', 'unknown' => 'Warmtebron: onbekend'] as $source => $label): ?>
+                    <div class="metric"><?= nibe_escape($label) ?><strong><?= $heatSources === null ? 'Niet beschikbaar' : nibe_escape((string) $heatSources[$source]) ?></strong><?= nibe_debug($heatSources, $performance['debug']['defrost'][$selectedDefrostPeriod]['heat_sources']) ?></div>
+                <?php endforeach; ?>
                 <div class="metric">Datadekking<strong><?= nibe_escape(number_format($defrost['coverage_percentage'] ?? 0, 1, ',', '') . '%') ?></strong></div>
             </div>
         </section>
