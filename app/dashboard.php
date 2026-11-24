@@ -13,6 +13,7 @@ function nibe_dashboard_default_role_mapping(array $measurements): array
         'supply' => '44058',
         'return' => '44055',
         'electric_power' => ['32486', '13'],
+        'auxiliary_heat_power' => '43084',
         'defrost' => '44703',
     ];
     $mapping = [];
@@ -38,6 +39,15 @@ function nibe_dashboard_default_role_mapping(array $measurements): array
         $mapping['heat_power'] = (string) $heatPowerCandidates[0]['measurement_point_id'];
     }
 
+    $auxiliaryHeatCandidates = array_values(array_filter($measurements, static function (array $measurement): bool {
+        return strcasecmp(trim((string) ($measurement['name'] ?? '')), 'Additional heat power') === 0
+            && in_array(strtolower(trim((string) ($measurement['unit'] ?? ''))), ['w', 'watts', 'kw', 'kilowatts'], true)
+            && isset($measurement['measurement_point_id']);
+    }));
+    if (!isset($mapping['auxiliary_heat_power']) && count($auxiliaryHeatCandidates) === 1) {
+        $mapping['auxiliary_heat_power'] = (string) $auxiliaryHeatCandidates[0]['measurement_point_id'];
+    }
+
     return $mapping;
 }
 
@@ -57,7 +67,9 @@ function nibe_dashboard_role_mapping(array $measurements, ?string $configuredRol
         return $mapping;
     }
 
-    $allowedRoles = ['electric_power', 'heat_power', 'electric_energy', 'heat_energy', 'defrost'];
+    $allowedRoles = [
+        'electric_power', 'heat_power', 'auxiliary_heat_power', 'electric_energy', 'heat_energy', 'defrost',
+    ];
     $availableIds = [];
     foreach ($measurements as $measurement) {
         $availableIds[(string) ($measurement['measurement_point_id'] ?? '')] = true;
@@ -429,7 +441,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
     $samples = [];
     $rejected = [];
     foreach (['frequency', 'supply', 'return', 'calculated_supply', 'hot_water', 'outdoor', 'degree_minutes',
-        'electric_power', 'heat_power', 'electric_energy', 'heat_energy', 'defrost'] as $role) {
+        'electric_power', 'heat_power', 'auxiliary_heat_power', 'electric_energy', 'heat_energy', 'defrost'] as $role) {
         $rejected[$role] = [];
         foreach ($observations[$role] ?? [] as $observation) {
             $rawValue = $observation['raw_value'] ?? null;
@@ -479,7 +491,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         }
         return $checks;
     };
-    $debug = ['periods' => [], 'frequency' => [], 'defrost' => []];
+    $debug = ['periods' => [], 'frequency' => [], 'defrost' => [], 'auxiliary_heat' => ['periods' => []]];
     $emptyPeriods = [];
     foreach ($windows as $period => $_start) {
         $emptyPeriods[$period] = ['cop' => null, 'electricity' => null, 'heat' => null, 'average_delta_t' => null];
@@ -587,6 +599,84 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         if ($energy['electricity'] !== null && $energy['electricity'] > 0 && $energy['heat'] !== null) {
             $emptyPeriods[$period]['cop'] = $energy['heat'] / $energy['electricity'];
         }
+    }
+    $auxiliaryHeatUnit = strtolower(trim((string) ($units['auxiliary_heat_power'] ?? '')));
+    $auxiliaryHeatUnitValid = in_array($auxiliaryHeatUnit, ['w', 'watts', 'kw', 'kilowatts'], true);
+    $auxiliaryHeatSamples = $samples['auxiliary_heat_power'];
+    $auxiliaryHeatPeriods = [];
+    foreach ($windows as $period => $start) {
+        $periodSamples = array_values(array_filter(
+            $auxiliaryHeatSamples,
+            static fn (array $sample): bool => $sample['time'] >= $start
+        ));
+        $starts = 0;
+        $hasObservedTransition = false;
+        foreach ($auxiliaryHeatSamples as $index => $sample) {
+            $previous = $auxiliaryHeatSamples[$index - 1] ?? null;
+            if ($sample['time'] < $start || $previous === null
+                || $sample['time'] <= $previous['time']
+                || $sample['time'] - $previous['time'] > 3600) {
+                continue;
+            }
+            $hasObservedTransition = true;
+            if ($previous['value'] <= 0 && $sample['value'] > 0) {
+                $starts++;
+            }
+        }
+        $electricityKwh = $periodSamples === [] || !$auxiliaryHeatUnitValid
+            ? null
+            : array_sum(array_map(
+                static fn (array $sample): float => max(
+                    0,
+                    $powerToKw($sample['value'], $auxiliaryHeatUnit) ?? 0
+                ) * 5 / 60,
+                $periodSamples
+            ));
+        $debug['auxiliary_heat']['periods'][$period] = [
+            'starts' => array_merge(
+                $roleChecks('auxiliary_heat_power', 'Elektrische bijverwarming'),
+                [$check($hasObservedTransition, 'Waargenomen vermogensovergang in periode: ' . ($hasObservedTransition ? 'ja' : 'nee'))]
+            ),
+            'electricity_kwh' => array_merge(
+                $roleChecks('auxiliary_heat_power', 'Vermogen elektrische bijverwarming'),
+                [
+                    $check($auxiliaryHeatUnitValid, 'Vermogenseenheid is W of kW (ontvangen: ' . ($auxiliaryHeatUnit !== '' ? $auxiliaryHeatUnit : 'leeg') . ')'),
+                    $check($periodSamples !== [], 'Vermogensmetingen in periode: ' . count($periodSamples) . ' (minimaal 1)'),
+                ]
+            ),
+        ];
+        $auxiliaryHeatPeriods[$period] = [
+            'starts' => $hasObservedTransition ? $starts : null,
+            'electricity_kwh' => $electricityKwh,
+        ];
+    }
+    $latestAuxiliaryHeatPower = $auxiliaryHeatSamples === [] ? null : end($auxiliaryHeatSamples);
+    $latestAuxiliaryHeatPowerKw = $latestAuxiliaryHeatPower === null
+        ? null
+        : $powerToKw($latestAuxiliaryHeatPower['value'], (string) ($units['auxiliary_heat_power'] ?? ''));
+    $auxiliaryHeatPowerNow = $latestAuxiliaryHeatPower !== null
+        && $nowTimestamp - $latestAuxiliaryHeatPower['time'] <= 900
+        && $latestAuxiliaryHeatPowerKw !== null
+        && $latestAuxiliaryHeatPowerKw >= 0
+        ? $latestAuxiliaryHeatPowerKw
+        : null;
+    $debug['auxiliary_heat']['power_now'] = array_merge(
+        $roleChecks('auxiliary_heat_power', 'Elektrisch bijverwarmingsvermogen'),
+        [
+            $check($latestAuxiliaryHeatPower !== null, 'Laatste vermogensmeting beschikbaar'),
+            $check($auxiliaryHeatUnitValid, 'Vermogenseenheid is W of kW (ontvangen: ' . ($auxiliaryHeatUnit !== '' ? $auxiliaryHeatUnit : 'leeg') . ')'),
+        ]
+    );
+    if ($latestAuxiliaryHeatPower !== null) {
+        $age = $nowTimestamp - $latestAuxiliaryHeatPower['time'];
+        $debug['auxiliary_heat']['power_now'][] = $check(
+            $age >= 0 && $age <= 900,
+            'Laatste vermogensmeting: ' . $age . ' seconden oud (tussen 0 en 900)'
+        );
+        $debug['auxiliary_heat']['power_now'][] = $check(
+            $latestAuxiliaryHeatPowerKw !== null && $latestAuxiliaryHeatPowerKw >= 0,
+            'Vermogen is niet-negatief en heeft een bruikbare eenheid'
+        );
     }
     $periodCoverage = [];
     foreach ($windows as $period => $start) {
@@ -1116,6 +1206,11 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         'frequency_seconds' => $frequencySeconds,
         'cop_by_outdoor_temperature' => $copByOutdoor,
         'defrost_periods' => $defrostPeriods,
+        'auxiliary_heat_power_now' => $auxiliaryHeatPowerNow,
+        'auxiliary_heat_power_timestamp' => $auxiliaryHeatPowerNow !== null
+            ? gmdate('Y-m-d H:i:s', $latestAuxiliaryHeatPower['time'])
+            : null,
+        'auxiliary_heat_periods' => $auxiliaryHeatPeriods,
         'debug' => $debug,
     ];
 }
