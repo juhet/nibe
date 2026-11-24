@@ -47,6 +47,43 @@ expect_same('stale', nibe_dashboard_measurement_freshness('2026-01-02 11:44:59',
     'measurements older than fifteen minutes are stale');
 expect_same('missing', nibe_dashboard_measurement_freshness(null, $now)['status'],
     'missing timestamps do not appear live');
+$noSuggestions = nibe_dashboard_suggestions([]);
+expect_same([], $noSuggestions, 'missing metrics do not produce unsupported suggestions');
+$cyclingSuggestionInput = [
+    'compressor_periods' => ['24h' => [
+        'complete' => true,
+        'starts' => 73,
+        'average_run_seconds' => 1800,
+        'coverage_percentage' => 95.0,
+    ]],
+];
+expect_same(1, count(nibe_dashboard_suggestions($cyclingSuggestionInput)),
+    'frequent short compressor runs produce an evidence-based suggestion');
+expect_same(0, count(nibe_dashboard_suggestions([
+    'compressor_periods' => ['24h' => [
+        'complete' => false,
+        'starts' => 100,
+        'average_run_seconds' => 1200,
+        'coverage_percentage' => 50.0,
+    ]],
+])), 'incomplete compressor data does not produce a suggestion');
+expect_same(0, count(nibe_dashboard_suggestions([
+    'compressor_periods' => ['24h' => [
+        'complete' => true,
+        'starts' => 72,
+        'average_run_seconds' => 1800,
+        'coverage_percentage' => 100.0,
+    ]],
+])), 'exactly three compressor starts per hour does not exceed the conservative threshold');
+$threeSuggestions = nibe_dashboard_suggestions($cyclingSuggestionInput + [
+    'auxiliary_heat_periods' => ['24h' => ['starts' => 2, 'electricity_kwh' => 1.25]],
+    'cop_warning' => true,
+    'cop_now' => 1.0,
+    'periods' => ['24h' => ['cop' => 1.5]],
+]);
+expect_same(3, count($threeSuggestions), 'dashboard suggestions are capped at three');
+expect_same(true, str_contains($threeSuggestions[0]['evidence'], '73 starts'),
+    'suggestions include the measured evidence supporting them');
 $settingEntry = nibe_dashboard_setting_change_input([
     'setting' => 'Graadminuten start compressor',
     'new_value' => '-180',

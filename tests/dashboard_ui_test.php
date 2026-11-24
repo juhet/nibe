@@ -123,6 +123,12 @@ try {
         || str_contains($html, 'Koppelingen voor prestatie-inzichten')) {
         throw new RuntimeException('Recent cycles must show COP and operating type, important readings must have chart toggles, and the obsolete explanation must be absent.');
     }
+    if (!preg_match('/<section class="suggestions"[^>]*>(.*?)<\/section>/s', $html, $suggestionsSection)
+        || !str_contains($suggestionsSection[1], 'Suggesties op basis van meetdata')
+        || !str_contains($suggestionsSection[1], 'inschakelmomenten waargenomen')
+        || substr_count($suggestionsSection[1], '<li>') > 3) {
+        throw new RuntimeException('The dashboard must show measurement-backed suggestions and never more than three.');
+    }
     if (!str_contains($html, '+ Instelling vastleggen')
         || !str_contains($html, 'id="setting-dialog"')
         || !str_contains($html, 'name="old_value"')
