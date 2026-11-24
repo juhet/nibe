@@ -194,13 +194,13 @@ function nibe_dashboard_setting_change_input(array $input): array
     }
     if (!is_string($changedAt)
         || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/D', $changedAt)) {
-        throw new InvalidArgumentException('Vul een geldige datum en tijd in UTC in.');
+        throw new InvalidArgumentException('Vul een geldige datum en tijd in.');
     }
     $time = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $changedAt, new DateTimeZone('UTC'));
     $errors = DateTimeImmutable::getLastErrors();
     if ($time === false || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
         || $time->format('Y-m-d\TH:i') !== $changedAt) {
-        throw new InvalidArgumentException('Vul een geldige datum en tijd in UTC in.');
+        throw new InvalidArgumentException('Vul een geldige datum en tijd in.');
     }
 
     return [

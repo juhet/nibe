@@ -62,14 +62,15 @@ $heatKw = $powerKw('heat_power');
 $currentCop = $performance['cop_now'] ?? null;
 $frequency = $readings['frequency'] ?? null;
 $defrost = $readings['defrost'] ?? null;
+$lastUpdate = $frequency['timestamp'] ?? null;
 $systemStatus = 'Status niet beschikbaar';
 if ($frequency !== null && $frequency['fresh'] && $frequency['value'] !== null && $frequency['value'] >= 0) {
     $systemStatus = $defrost !== null && $defrost['fresh'] && $defrost['value'] > 0
         ? 'Ontdooien'
-        : ($frequency['value'] > 0 ? 'Verwarming actief' : 'Stand-by');
+        : ($frequency['value'] > 0 ? 'Compressor actief' : 'Stand-by');
 }
 $statusClass = match ($systemStatus) {
-    'Verwarming actief' => 'active',
+    'Compressor actief' => 'active',
     'Ontdooien' => 'defrost',
     'Stand-by' => 'standby',
     default => 'unknown',
@@ -81,6 +82,18 @@ foreach (['indoor', 'outdoor', 'hot_water', 'frequency', 'electric_power', 'heat
     }
 }
 $availableInsights = array_slice($suggestions, 0, 3);
+$compressor24h = $performance['compressor_periods']['24h'] ?? [];
+if (count($availableInsights) < 3 && ($compressor24h['complete'] ?? false)
+    && is_numeric($compressor24h['average_run_seconds'] ?? null)) {
+    $availableInsights[] = [
+        'title' => 'Compressorcycli',
+        'evidence' => sprintf(
+            'Gemiddelde looptijd: %.0f minuten in de afgelopen 24 uur (%s%% dekking).',
+            $compressor24h['average_run_seconds'] / 60,
+            number_format((float) ($compressor24h['coverage_percentage'] ?? 0), 1, ',', '')
+        ),
+    ];
+}
 $timelineStart = $now->getTimestamp() - 86400;
 $timelineSegments = [];
 foreach ($performance['cycles'] ?? [] as $cycle) {
@@ -88,9 +101,9 @@ foreach ($performance['cycles'] ?? [] as $cycle) {
         continue;
     }
     $operation = (string) ($cycle['operation'] ?? '');
-    $kind = stripos($operation, 'warm water') !== false || stripos($operation, 'tapwater') !== false
-        ? 'tapwater'
-        : 'heating';
+    $hasWater = stripos($operation, 'warm water') !== false || stripos($operation, 'tapwater') !== false;
+    $hasHeating = stripos($operation, 'verwarming') !== false;
+    $kind = $hasWater && $hasHeating ? 'both' : ($hasWater ? 'tapwater' : ($hasHeating ? 'heating' : 'unknown'));
     $start = max($timelineStart, (int) $cycle['start']);
     $end = min($now->getTimestamp(), (int) $cycle['end']);
     $timelineSegments[] = [
@@ -98,6 +111,8 @@ foreach ($performance['cycles'] ?? [] as $cycle) {
         'left' => 100 * ($start - $timelineStart) / 86400,
         'width' => max(0.35, 100 * ($end - $start) / 86400),
         'label' => $operation !== '' ? $operation : 'Compressorcyclus',
+        'start' => $start,
+        'end' => $end,
     ];
 }
 foreach ($historyByRole['auxiliary_heat_power'] ?? [] as $index => $observation) {
@@ -227,6 +242,7 @@ $eventItems = array_slice($eventItems, 0, 3);
         .context-content p { margin: .55rem 0; }
         .context-link { display: inline-flex; margin-top: .8rem; color: #91c7ff; font-weight: 600; }
         .context-close { display: none; }
+        .context.details-open .context-close { display: inline-flex; float: right; border: 0; background: transparent; color: var(--muted); padding: .3rem; cursor: pointer; }
         .lower-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .75fr); gap: 1rem; margin-top: 1rem; }
         .card, .timeline { padding: 1.25rem; }
         .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
@@ -252,6 +268,41 @@ $eventItems = array_slice($eventItems, 0, 3);
         .legend li:nth-child(3) i { background: #b79bff; }
         .legend li:nth-child(4) i { background: #f08080; }
         .mobile-nav { display: none; }
+        /* The installation is an illustration, not a schematic: only observed flows light up. */
+        .twin { min-height: 390px; grid-template-columns: 1fr 1.25fr 1fr; }
+        .twin::before { inset: 9% 15%; border: 0; background: radial-gradient(ellipse, #3e799d24, transparent 70%); }
+        .node, .node.pump { background: transparent; border: 1px solid transparent; box-shadow: none; text-align: center; display: grid; justify-items: center; align-content: center; min-width: 0; }
+        .node:hover, .node:focus-visible, .node[aria-pressed="true"] { transform: scale(1.035); border-color: #8acbff36; box-shadow: 0 0 30px #4ba9ff22; background: #ffffff06; }
+        .node-value { overflow-wrap: anywhere; }
+        .pump-symbol { position: relative; display: block; width: 120px; height: 145px; border-radius: 12px 12px 6px 6px; border: 1px solid #d5e5e9; background: linear-gradient(110deg, #96aeb8, #e1ecec 38%, #a6bac0); box-shadow: 8px 12px 22px #0007, inset -8px 0 12px #526b7455; }
+        .pump-symbol::after { content: ""; position: absolute; bottom: -7px; left: 10%; width: 80%; height: 7px; background: #607884; border-radius: 0 0 4px 4px; }
+        .fan { position: absolute; inset: 24px 18px 35px; border-radius: 50%; border: 5px solid #526d79; background: repeating-radial-gradient(circle, transparent 0 4px, #79949c 5px 6px), conic-gradient(from 25deg, #3a5662, #c0d0d1 18%, #3a5662 25%, #c0d0d1 43%, #3a5662 50%, #c0d0d1 68%, #3a5662 75%, #c0d0d1 93%, #3a5662); }
+        .pump-brand { position: absolute; bottom: 13px; left: 0; right: 0; font-size: .55rem; font-weight: 800; letter-spacing: .16em; color: #355361; }
+        .house-symbol { position: relative; display: block; width: 112px; height: 94px; margin: 35px auto 13px; background: linear-gradient(120deg, #9fb6bf, #d7e3e1 60%, #8da7b2); border-radius: 3px 3px 7px 7px; box-shadow: 8px 12px 22px #0006; }
+        .house-symbol::before { content: ""; position: absolute; width: 82px; height: 82px; top: -40px; left: 15px; transform: rotate(45deg); border-radius: 5px; background: linear-gradient(135deg, #577487 50%, transparent 50%); }
+        .house-symbol span { position: absolute; top: 24px; left: 19px; width: 33px; height: 34px; background: #ffc98c; border: 4px solid #dce8e7; box-shadow: 0 0 22px #ffbd7970; }
+        .house-symbol::after { content: ""; position: absolute; bottom: 0; right: 17px; width: 25px; height: 42px; border-radius: 3px 3px 0 0; background: #607c88; }
+        .boiler-symbol { position: relative; display: block; width: 64px; height: 103px; margin: 5px auto 10px; border-radius: 50% / 12%; background: linear-gradient(90deg, #849da8, #e6eeee 45%, #9cb1b8); box-shadow: 7px 10px 20px #0006; }
+        .boiler-symbol span { position: absolute; top: 40%; left: 37%; width: 26%; aspect-ratio: 1; border-radius: 50%; background: #81babb; box-shadow: 0 0 12px #72d8d2; }
+        .flow { height: 4px; border: 0; border-radius: 99px; opacity: .14; background: #ffb66d; filter: drop-shadow(0 0 7px #ff9a42); overflow: hidden; transition: opacity .3s; }
+        .flow::after { content: ""; position: absolute; inset: 0; width: 35%; border: 0; background: linear-gradient(90deg, transparent, #fff4d8, transparent); animation: energy-flow 1.5s linear infinite; }
+        .flow.electric { top: 29%; left: 21%; background: #64e4dc; filter: drop-shadow(0 0 7px #4be2d7); }
+        .flow.heat { top: 31%; left: 61%; width: 18%; }
+        .flow.water-flow { top: 72%; left: 61%; width: 18%; }
+        .twin[data-state="active"] .flow.electric, .twin[data-state="defrost"] .flow.electric,
+        .twin[data-state="active"][data-operation="heating"] .flow.heat,
+        .twin[data-state="active"][data-operation="tapwater"] .flow.water-flow,
+        .twin[data-state="active"][data-operation="both"] .flow.heat,
+        .twin[data-state="active"][data-operation="both"] .flow.water-flow { opacity: 1; }
+        .flow-label { display: none; }
+        .timeline-segment.unknown { background: #8c9fb3; }
+        .timeline-segment.both { background: linear-gradient(90deg, var(--cyan), var(--warm)); }
+        .lower-grid { grid-template-columns: minmax(0, 1fr); }
+        .kpi-value { overflow-wrap: normal; }
+        .kpi:nth-child(-n+2) .kpi-value { color: #fff; font-size: clamp(1.5rem, 2.5vw, 2.2rem); }
+        .live-badge.active::before, .live-badge.defrost::before { animation: status-glow 2.5s ease-in-out infinite; }
+        @keyframes energy-flow { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+        @keyframes status-glow { 50% { opacity: .5; box-shadow: 0 0 3px currentColor; } }
         [hidden] { display: none !important; }
         @media (max-width: 1050px) {
             .layout { grid-template-columns: 78px minmax(0, 1fr); }
@@ -260,6 +311,7 @@ $eventItems = array_slice($eventItems, 0, 3);
             .nav-links a { font-size: 1.1rem; padding: .8rem; }
             .overview-grid { grid-template-columns: minmax(0, 1fr); }
             .context { min-height: auto; }
+            .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         @media (max-width: 650px) {
             .layout { display: block; }
@@ -271,23 +323,27 @@ $eventItems = array_slice($eventItems, 0, 3);
             .hero { padding: 1rem; border-radius: 1rem; }
             .hero-heading { align-items: flex-start; }
             .updated { font-size: .7rem; }
-            .twin { min-height: 300px; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: .6rem; margin: 1rem 0; }
+            .twin { min-height: 310px; grid-template-columns: 1fr 1.2fr 1fr; grid-template-rows: 1fr 1fr; gap: 0; margin: 1rem 0; }
             .twin::before { inset: 10% 5%; }
             .node { min-height: 95px; padding: .7rem; border-radius: .8rem; }
             .node.outdoor { grid-column: 1; grid-row: 1; }
-            .node.pump { grid-column: 2; grid-row: 1; min-height: 130px; }
-            .node.home { grid-column: 1; grid-row: 2; }
-            .node.water { grid-column: 2; grid-row: 2; }
-            .pump-symbol { width: 46px; height: 46px; border-radius: .9rem; font-size: 1.5rem; margin-bottom: .45rem; }
-            .node-value { font-size: 1rem; }
-            .node.pump .node-value { font-size: 1.08rem; }
-            .flow { display: none; }
+            .node.pump { grid-column: 2; grid-row: 1 / 3; min-height: 130px; }
+            .node.home { grid-column: 3; grid-row: 1; }
+            .node.water { grid-column: 3; grid-row: 2; }
+            .pump-symbol { width: 80px; height: 100px; border-radius: 8px; margin-bottom: .45rem; }
+            .fan { inset: 17px 12px 25px; }
+            .pump-brand { bottom: 7px; }
+            .house-symbol { transform: scale(.65); margin: 0 -12px -8px; }
+            .boiler-symbol { transform: scale(.7); margin: -10px 0 -8px; }
+            .node { padding: .2rem; }
+            .node-value, .node.pump .node-value { font-size: .83rem; }
+            .node-label { font-size: .68rem; }
             .flow-label { display: none; }
             .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
             .kpi { padding: .75rem; }
-            .kpi-value { font-size: 1.35rem; }
-            .context { position: fixed; z-index: 10; inset: auto .6rem calc(4.7rem + env(safe-area-inset-bottom)) .6rem; border-radius: 1rem; box-shadow: 0 20px 70px #000b; }
-            .context-close { display: inline-flex; float: right; border: 0; background: transparent; color: var(--muted); padding: .3rem; cursor: pointer; }
+            .kpi-value, .kpi:nth-child(-n+2) .kpi-value { font-size: clamp(1rem, 4.5vw, 1.35rem); overflow-wrap: anywhere; }
+            .context.details-open { position: fixed; z-index: 10; inset: auto .6rem calc(4.7rem + env(safe-area-inset-bottom)) .6rem; border-radius: 1rem; box-shadow: 0 20px 70px #000b; }
+            .context.details-open .context-close { display: inline-flex; float: right; border: 0; background: transparent; color: var(--muted); padding: .3rem; cursor: pointer; }
             .card, .timeline { padding: 1rem; border-radius: 1rem; }
             .timeline-controls { gap: .5rem; }
             .timeline time { min-width: 5.5rem; font-size: .75rem; }
@@ -296,7 +352,7 @@ $eventItems = array_slice($eventItems, 0, 3);
             .mobile-nav a[aria-current="page"] { color: #eef4ff; }
         }
         @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+            *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
         }
     </style>
 </head>
@@ -330,71 +386,65 @@ $eventItems = array_slice($eventItems, 0, 3);
             <section class="hero" aria-labelledby="system-title">
                 <div class="hero-heading">
                     <h2 id="system-title">Systeemoverzicht</h2>
-                    <span class="updated"><?= $now->format('H:i') ?> · <?= nibe_escape($systemStatus) ?></span>
+                    <span class="updated"><?php if (is_string($lastUpdate) && $lastUpdate !== ''): ?>Compressor bijgewerkt <time class="local-time" datetime="<?= nibe_escape($lastUpdate) ?>">tijd laden…</time><?php else: ?>Actuele metingen<?php endif; ?></span>
                 </div>
-                <div class="twin" aria-label="Interactief systeemmodel">
+                <div class="twin" data-state="<?= nibe_escape($statusClass) ?>" data-operation="unknown" aria-label="Interactief systeemmodel">
                     <span class="flow electric" aria-hidden="true"></span>
                     <span class="flow heat" aria-hidden="true"></span>
                     <span class="flow water-flow" aria-hidden="true"></span>
                     <span class="flow-label electric-label">Elektriciteit <span data-reading="electric_power"><?= $electricKw === null ? '—' : nibe_escape($formatNumber($electricKw, 2) . ' kW') ?></span></span>
                     <span class="flow-label heat-label">Warmte <span data-reading="heat_power"><?= $heatKw === null ? '—' : nibe_escape($formatNumber($heatKw, 2) . ' kW') ?></span></span>
-                    <span class="flow-label water-label">Comfort</span>
+                    <span class="flow-label water-label">Tapwater</span>
                     <button class="node outdoor" data-panel="buitenunit" data-target="index_old.php#chart-title">
                         <span class="node-icon" aria-hidden="true">☼</span><span class="node-label">Buitenlucht</span>
                         <span class="node-value" data-reading="outdoor"><?= nibe_escape($formatReading('outdoor')) ?></span>
                     </button>
                     <button class="node pump" data-panel="warmtepomp" data-target="index_old.php#performance-title">
-                        <span class="pump-symbol" aria-hidden="true">⌁</span><span class="node-label">Warmtepomp</span>
+                        <span class="pump-symbol" aria-hidden="true"><span class="fan"></span><span class="pump-brand">NIBE</span></span><span class="node-label">Warmtepomp</span>
                         <span class="node-value"><?= nibe_escape($systemStatus) ?></span>
                         <span class="node-label">Compressor <span data-reading="frequency"><?= nibe_escape($formatReading('frequency')) ?></span></span>
                     </button>
                     <button class="node home" data-panel="woning" data-target="index_old.php#chart-title">
-                        <span class="node-icon" aria-hidden="true">⌂</span><span class="node-label">Woning</span>
+                        <span class="house-symbol" aria-hidden="true"><span></span></span><span class="node-label">Woning</span>
                         <span class="node-value" data-reading="indoor"><?= nibe_escape($formatReading('indoor')) ?></span>
                     </button>
                     <button class="node water" data-panel="tapwater" data-target="index_old.php#chart-title">
-                        <span class="node-icon" aria-hidden="true">◌</span><span class="node-label">Tapwater</span>
+                        <span class="boiler-symbol" aria-hidden="true"><span></span></span><span class="node-label">Tapwater</span>
                         <span class="node-value" data-reading="hot_water"><?= nibe_escape($formatReading('hot_water')) ?></span>
                     </button>
                 </div>
                 <div class="kpis" id="energy">
                     <div class="kpi"><div class="kpi-label">COP nu</div><div class="kpi-value" data-reading="cop"><?= nibe_escape($formatNumber($currentCop, 2)) ?></div></div>
                     <div class="kpi"><div class="kpi-label">Warmtevermogen</div><div class="kpi-value" data-reading="heat_power"><?= $heatKw === null ? 'Niet beschikbaar' : nibe_escape($formatNumber($heatKw, 2)) ?> <small><?= $heatKw === null ? '' : 'kW' ?></small></div></div>
+                    <div class="kpi"><div class="kpi-label">Binnentemperatuur</div><div class="kpi-value" data-reading="indoor"><?= nibe_escape($formatReading('indoor')) ?></div></div>
                     <div class="kpi"><div class="kpi-label">Elektrisch vermogen</div><div class="kpi-value" data-reading="electric_power"><?= $electricKw === null ? 'Niet beschikbaar' : nibe_escape($formatNumber($electricKw, 2)) ?> <small><?= $electricKw === null ? '' : 'kW' ?></small></div></div>
-                    <div class="kpi"><div class="kpi-label">Compressorfrequentie</div><div class="kpi-value"><span data-reading="frequency"><?= nibe_escape($formatReading('frequency')) ?></span></div></div>
                 </div>
-                <div id="reading-data" hidden data-point-ids="<?= nibe_escape(json_encode($measurementIds, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)) ?>"></div>
+                <div id="reading-data" hidden data-point-ids="<?= nibe_escape(json_encode($measurementIds, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)) ?>" data-cycles="<?= nibe_escape(json_encode(array_values(array_filter($timelineSegments, static fn (array $segment): bool => isset($segment['start']))), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)) ?>"></div>
             </section>
             <aside class="context" id="context-panel" aria-live="polite">
                 <button class="context-close" id="context-close" type="button" aria-label="Paneel sluiten">✕</button>
-                <h2 id="context-title">Systeemstatus</h2>
+                <h2 id="context-title">Inzichten uit je systeem</h2>
                 <div class="context-content" id="context-content">
-                    <p><strong><?= nibe_escape($systemStatus) ?></strong></p>
-                    <p>De status is gebaseerd op de meest recente compressor- en defrostmetingen.</p>
-                    <?php if ($performance['cop_now'] !== null): ?>
-                        <p>Gemeten actuele COP: <?= nibe_escape($formatNumber((float) $performance['cop_now'], 2)) ?></p>
+                    <?php if ($availableInsights === []): ?>
+                        <p>Er zijn nog geen onderbouwde inzichten beschikbaar. Meer meetgegevens kunnen nieuwe inzichten opleveren.</p>
+                    <?php else: ?>
+                        <ul class="insights">
+                            <?php foreach ($availableInsights as $insight): ?>
+                                <li><strong><?= nibe_escape($insight['title']) ?></strong><p><?= nibe_escape($insight['evidence']) ?></p></li>
+                            <?php endforeach; ?>
+                        </ul>
                     <?php endif; ?>
                 </div>
                 <a class="context-link" id="context-link" href="index_old.php#performance-title">Bekijk analyse →</a>
             </aside>
         </div>
         <div class="lower-grid">
-            <?php if ($availableInsights !== []): ?>
-                <section class="card" aria-labelledby="insights-title">
-                    <div class="section-heading"><h2 id="insights-title">Opvallend</h2><a href="index_old.php#suggestions-title">Alle analyse →</a></div>
-                    <ul class="insights">
-                        <?php foreach ($availableInsights as $insight): ?>
-                            <li><strong><?= nibe_escape($insight['title']) ?></strong><p><?= nibe_escape($insight['evidence']) ?></p></li>
-                        <?php endforeach; ?>
-                    </ul>
-                </section>
-            <?php endif; ?>
             <section class="card" aria-labelledby="events-title">
                 <div class="section-heading"><h2 id="events-title">Laatste gebeurtenissen</h2><a href="index_old.php#performance-title">Meer →</a></div>
                 <?php if ($eventItems !== []): ?>
                     <ul class="events">
                         <?php foreach ($eventItems as $event): ?>
-                            <li><time class="local-time" datetime="<?= gmdate('Y-m-d H:i:s', $event['time']) ?>"><?= gmdate('H:i', $event['time']) ?></time><strong><?= nibe_escape($event['label']) ?></strong></li>
+                            <li><time class="local-time" datetime="<?= gmdate('Y-m-d H:i:s', $event['time']) ?>">Tijd laden…</time><strong><?= nibe_escape($event['label']) ?></strong></li>
                         <?php endforeach; ?>
                     </ul>
                 <?php else: ?>
@@ -403,7 +453,7 @@ $eventItems = array_slice($eventItems, 0, 3);
             </section>
         </div>
         <section class="timeline" aria-labelledby="timeline-title">
-            <div class="section-heading"><h2 id="timeline-title">Tijdmachine</h2><time id="timeline-time"><?= $now->format('H:i') ?></time></div>
+            <div class="section-heading"><h2 id="timeline-title">Tijdmachine</h2><time id="timeline-time" class="local-time" datetime="<?= gmdate('Y-m-d H:i:s', $now->getTimestamp()) ?>">Tijd laden…</time></div>
             <div class="timeline-track" role="img" aria-label="Gemeten verwarmings-, tapwater-, defrost- en bijverwarmingsmomenten in de afgelopen 24 uur">
                 <?php foreach ($timelineSegments as $segment): ?>
                     <span class="timeline-segment <?= nibe_escape($segment['kind']) ?>"

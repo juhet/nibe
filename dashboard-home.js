@@ -6,12 +6,20 @@
     if (!data || !slider) return;
 
     const pointIds = JSON.parse(data.dataset.pointIds || '{}');
+    const cycles = JSON.parse(data.dataset.cycles || '[]');
     const timeLabel = document.getElementById('timeline-time');
     const status = document.getElementById('timeline-status');
     const contextPanel = document.getElementById('context-panel');
     const contextTitle = document.getElementById('context-title');
     const contextContent = document.getElementById('context-content');
     const contextLink = document.getElementById('context-link');
+    const twin = document.querySelector('.twin');
+    const badge = document.querySelector('.live-badge');
+    const initialReadings = [...document.querySelectorAll('[data-reading]')].map(element => [element, element.innerHTML]);
+    const initialStatus = badge.textContent;
+    const initialClass = badge.className;
+    const initialContext = contextContent.innerHTML;
+    const initialUpdated = document.querySelector('.hero-heading .updated').innerHTML;
     let requestId = 0;
     let timer = null;
 
@@ -23,7 +31,7 @@
     const numberFormat = new Intl.NumberFormat('nl-NL', {maximumFractionDigits: 2});
 
     function powerKw(role, value, unit) {
-        if (value === null || (role === 'electric_power' && value <= 0)
+        if (!Number.isFinite(value) || (role === 'electric_power' && value <= 0)
             || (role === 'heat_power' && value < 0)) return null;
         switch ((unit || '').trim().toLowerCase()) {
             case 'w':
@@ -49,6 +57,10 @@
         const heat = powerKw('heat_power', values.heat_power?.value, values.heat_power?.unit);
         const cop = electric !== null && electric > 0 && heat !== null ? heat / electric : null;
         const formatted = {
+            indoor: 'Niet beschikbaar',
+            outdoor: 'Niet beschikbaar',
+            hot_water: 'Niet beschikbaar',
+            frequency: 'Niet beschikbaar',
             ...Object.fromEntries(Object.entries(values).map(([role, point]) => [role, display(role, point)])),
             electric_power: electric === null ? 'Niet beschikbaar' : numberFormat.format(electric) + ' kW',
             heat_power: heat === null ? 'Niet beschikbaar' : numberFormat.format(heat) + ' kW',
@@ -62,13 +74,29 @@
 
         const frequency = values.frequency?.value;
         const defrost = values.defrost?.value;
+        const cycle = cycles.find(item => timestampInCycle(Number(slider.value), item));
+        const operation = cycle?.kind || 'unknown';
         const systemStatus = frequency === undefined || frequency < 0
             ? 'Status niet beschikbaar'
-            : defrost > 0 ? 'Ontdooien' : frequency > 0 ? 'Verwarming actief' : 'Stand-by';
+            : defrost > 0 ? 'Ontdooien' : frequency > 0
+                ? operation === 'both' ? 'Verwarming en tapwater'
+                    : operation === 'tapwater' ? 'Tapwater wordt verwarmd'
+                    : operation === 'heating' ? 'Verwarming actief' : 'Compressor actief'
+                : 'Stand-by';
+        const state = frequency === undefined || frequency < 0 ? 'unknown'
+            : defrost > 0 ? 'defrost' : frequency > 0 ? 'active' : 'standby';
+        twin.dataset.state = state;
+        twin.dataset.operation = operation;
+        badge.className = 'live-badge ' + state;
+        badge.textContent = systemStatus;
         const pumpStatus = document.querySelector('.node.pump .node-value');
         if (pumpStatus) pumpStatus.textContent = systemStatus;
         const headlineStatus = document.querySelector('.hero-heading .updated');
         if (headlineStatus) headlineStatus.textContent = localDateTime(Number(slider.value) * 1000) + ' · ' + systemStatus;
+    }
+
+    function timestampInCycle(timestamp, cycle) {
+        return timestamp >= cycle.start && timestamp <= cycle.end;
     }
 
     async function loadAt(timestamp, currentRequest) {
@@ -99,7 +127,7 @@
                     const raw = observation.raw_value;
                     const sourceTime = observation.source_timestamp || observation.collected_at;
                     const observedAt = sourceTime ? Date.parse(sourceTime.replace(' ', 'T') + 'Z') / 1000 : NaN;
-                    if (typeof raw !== 'string' || !Number.isFinite(Number(raw)) || !Number.isFinite(observedAt)) continue;
+                    if (typeof raw !== 'string' || raw.trim() === '' || !Number.isFinite(Number(raw)) || !Number.isFinite(observedAt)) continue;
                     const candidateDistance = Math.abs(observedAt - timestamp);
                     if (candidateDistance < distance) {
                         nearest = {value: Number(raw), unit: series.point.unit || ''};
@@ -120,11 +148,24 @@
     }
 
     slider.addEventListener('input', () => {
+        if (contextPanel.classList.contains('details-open')) document.getElementById('context-close').click();
         const timestamp = Number(slider.value);
         const currentRequest = ++requestId;
         timeLabel.textContent = localDateTime(timestamp * 1000);
         status.textContent = 'Historie laden…';
         clearTimeout(timer);
+        if (timestamp === Number(slider.max)) {
+            initialReadings.forEach(([element, html]) => { element.innerHTML = html; });
+            badge.className = initialClass;
+            badge.textContent = initialStatus;
+            twin.dataset.state = initialClass.split(' ').pop();
+            twin.dataset.operation = 'unknown';
+            document.querySelector('.node.pump .node-value').textContent = initialStatus;
+            document.querySelector('.hero-heading .updated').innerHTML = initialUpdated;
+            status.textContent = 'Actuele metingen.';
+            return;
+        }
+        updateView({});
         timer = setTimeout(() => {
             loadAt(timestamp, currentRequest);
         }, 250);
@@ -147,18 +188,24 @@
             const key = button.dataset.panel;
             contextTitle.textContent = labels[key] || 'Installatieonderdeel';
             contextContent.textContent = details[key] || '';
+            const roles = {warmtepomp: ['frequency', 'electric_power', 'cop'], woning: ['indoor'], tapwater: ['hot_water'], buitenunit: ['outdoor']};
+            const names = {frequency: 'Compressor', electric_power: 'Elektriciteit', cop: 'COP', indoor: 'Binnen', hot_water: 'Tapwater', outdoor: 'Buiten'};
+            for (const role of roles[key] || []) {
+                const paragraph = document.createElement('p');
+                paragraph.textContent = names[role] + ': ' + (document.querySelector('[data-reading="' + role + '"]')?.textContent.trim() || 'Niet beschikbaar');
+                contextContent.append(paragraph);
+            }
             contextLink.href = button.dataset.target;
             contextPanel.hidden = false;
+            contextPanel.classList.add('details-open');
+            document.querySelectorAll('.node[data-panel]').forEach(node => node.setAttribute('aria-pressed', String(node === button)));
         });
     }
     document.getElementById('context-close')?.addEventListener('click', () => {
-        contextPanel.hidden = true;
-    });
-
-    document.querySelectorAll('.local-time').forEach(element => {
-        const timestamp = Date.parse(element.dateTime.replace(' ', 'T') + 'Z');
-        if (Number.isFinite(timestamp)) element.textContent = new Intl.DateTimeFormat('nl-NL', {
-            timeStyle: 'short',
-        }).format(new Date(timestamp));
+        contextPanel.classList.remove('details-open');
+        contextTitle.textContent = 'Inzichten uit je systeem';
+        contextContent.innerHTML = initialContext;
+        contextLink.href = 'index_old.php#performance-title';
+        document.querySelectorAll('.node[data-panel]').forEach(node => node.setAttribute('aria-pressed', 'false'));
     });
 })();

@@ -10,6 +10,13 @@ De afzonderlijke gegevensverzamelaar ontdekt systemen en meetpunten via
 myUplink en slaat hun actuele waarden op. De pagina start zelf geen verzameling
 en vult ontbrekende metingen niet aan met verzonnen waarden.
 
+De tijdmachine toont metingen binnen vijf minuten van het gekozen tijdstip.
+De bestemming van een warmtestroom licht alleen op wanneer een waargenomen
+compressorcyclus verwarming of tapwater onderbouwt; bij onbekend bedrijf blijft
+de bestemming gedimd. Tijden en invoer in het instellingenlogboek worden in
+de tijdzone van de browser weergegeven. De bestaande dagtotalen op de
+technische pagina tonen hun werkelijke begingrens in lokale tijd.
+
 ## Benodigd
 
 - PHP 8.1 of nieuwer met PDO en de PDO MySQL-driver

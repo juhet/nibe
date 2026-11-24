@@ -9,6 +9,13 @@
         dateStyle: 'short',
         timeStyle: 'short',
     }).format(new Date(timestamp));
+    const localInputValue = timestamp => {
+        const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+        }).formatToParts(new Date(timestamp)).map(part => [part.type, part.value]));
+        return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+    };
     for (const time of document.querySelectorAll('.local-time')) {
         const timestamp = parseUtc(time.dateTime);
         if (Number.isFinite(timestamp)) time.textContent = localDateTime(timestamp);
@@ -21,7 +28,7 @@
         document.getElementById('setting-add').addEventListener('click', () => {
             settingForm.reset();
             fields.id.value = '';
-            fields.changed_at.value = new Date().toISOString().slice(0, 16);
+            fields.changed_at.value = localInputValue(Date.now());
             document.getElementById('setting-dialog-title').textContent = 'Instelling vastleggen';
             settingDialog.showModal();
         });
@@ -32,12 +39,18 @@
                 fields.old_value.value = button.dataset.oldValue;
                 fields.new_value.value = button.dataset.newValue;
                 fields.note.value = button.dataset.note;
-                fields.changed_at.value = button.dataset.changedAt;
+                fields.changed_at.value = localInputValue(parseUtc(button.dataset.changedAt));
                 document.getElementById('setting-dialog-title').textContent = 'Instelling bewerken';
                 settingDialog.showModal();
             });
         }
         document.getElementById('setting-cancel').addEventListener('click', () => settingDialog.close());
+        settingForm.addEventListener('formdata', event => {
+            const timestamp = new Date(fields.changed_at.value).getTime();
+            if (Number.isFinite(timestamp)) {
+                event.formData.set('changed_at', new Date(timestamp).toISOString().slice(0, 16));
+            }
+        });
         for (const form of document.querySelectorAll('.setting-delete')) {
             form.addEventListener('submit', event => {
                 if (!window.confirm('Weet je zeker dat je deze instelling wilt verwijderen?')) event.preventDefault();
@@ -71,10 +84,6 @@
         const duration = Math.max(5 * 60 * 1000, Math.min(30 * 86400000,
             (currentRange.end - currentRange.start) * factor));
         currentRange = {start: center - duration / 2, end: center + duration / 2};
-        const localInputValue = timestamp => {
-            const date = new Date(timestamp - new Date(timestamp).getTimezoneOffset() * 60000);
-            return date.toISOString().slice(0, 16);
-        };
         period.value = 'custom';
         startInput.disabled = endInput.disabled = false;
         startInput.value = localInputValue(currentRange.start);
