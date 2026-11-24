@@ -160,10 +160,8 @@ foreach ($historyByRole['auxiliary_heat_power'] ?? [] as $index => $observation)
         ];
     }
 }
-$lastDefrostSeconds = $performance['defrost_periods']['24h']['since_last_seconds'] ?? null;
-$lastDefrostTime = is_numeric($lastDefrostSeconds) && $lastDefrostSeconds >= 0 && $lastDefrostSeconds <= 86400
-    ? $now->getTimestamp() - (int) $lastDefrostSeconds
-    : null;
+$defrostStartTimes = $performance['defrost_periods']['24h']['start_times'] ?? [];
+$lastDefrostTime = $defrostStartTimes === [] ? null : end($defrostStartTimes);
 $latestCycles = array_slice(array_reverse($performance['cycles'] ?? []), 0, 3);
 $eventItems = [];
 foreach ($latestCycles as $cycle) {
@@ -519,11 +517,11 @@ $eventItems = array_slice($eventItems, 0, 3);
                           style="left:<?= nibe_escape(number_format($segment['left'], 4, '.', '')) ?>%;width:<?= nibe_escape(number_format($segment['width'], 4, '.', '')) ?>%"
                           title="<?= nibe_escape($segment['label']) ?>"></span>
                 <?php endforeach; ?>
-                <?php if ($lastDefrostTime !== null): ?>
+                <?php foreach ($defrostStartTimes as $defrostTime): ?>
                     <span class="timeline-segment defrost"
-                          style="left:<?= nibe_escape(number_format(100 * ($lastDefrostTime - $timelineStart) / 86400, 4, '.', '')) ?>%"
+                          style="left:<?= nibe_escape(number_format(100 * ($defrostTime - $timelineStart) / 86400, 4, '.', '')) ?>%"
                           title="Defrost waargenomen"></span>
-                <?php endif; ?>
+                <?php endforeach; ?>
             </div>
             <div class="timeline-controls">
                 <span class="eyebrow">24 uur geleden</span>
