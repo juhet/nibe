@@ -124,6 +124,17 @@ class DashboardTestStatement
                 ['9', '1000', $now - 300],
                 ['4', '3', $now - 901],
             ];
+            if (getenv('NIBE_TEST_ACTIVE_CYCLE') === '1') {
+                $events[] = ['5', '20', $now - 600];
+                $events[] = ['5', '25', $now - 300];
+            }
+            if (getenv('NIBE_TEST_LONG_CYCLE') === '1') {
+                $events = array_values(array_filter($events, static fn (array $event): bool => $event[0] !== '5'));
+                $events[] = ['5', '0', $now - 25 * 3600 - 300];
+                for ($time = $now - 25 * 3600; $time <= $now; $time += 3600) {
+                    $events[] = ['5', '20', $time];
+                }
+            }
             $defrostStarts = [];
             for ($defrost = 0; $defrost < 12; $defrost++) {
                 $defrostStarts[] = $now - (23 - 2 * $defrost) * 3600;
@@ -207,7 +218,7 @@ try {
         || !preg_match('/Warmtevermogen nu<strong>Niet beschikbaar<\/strong>(?:(?!<\/div>).)*✗ Meting is 90[1-9] seconden oud/s', $html)) {
         throw new RuntimeException('Current KPI debug blocks do not show their failed validation.');
     }
-    file_put_contents($directory . '/render-home.php', '<?php include __DIR__ . \'/index.php\';');
+    file_put_contents($directory . '/render-home.php', '<?php include __DIR__ . (getenv(\'NIBE_TEST_DETAILED\') === \'1\' ? \'/index_old.php\' : \'/index.php\');');
     $renderHome = static function (?array $environment = null) use ($directory): array {
         $process = proc_open(
             [PHP_BINARY, $directory . '/render-home.php'],
@@ -296,6 +307,27 @@ try {
         || !str_contains($homeHtml, 'Binnentemperatuur')
         || !str_contains($homeHtml, 'Inzichten uit je systeem')) {
         throw new RuntimeException('The dashboard must expose observed replay modes, product illustrations and evidence-based insights.');
+    }
+    [$activeHtml, $activeError, $activeExitCode] = $renderHome(['NIBE_TEST_ACTIVE_CYCLE' => '1']);
+    if ($activeExitCode !== 0 || !str_contains($activeHtml, 'Compressorcyclus actief')
+        || !preg_match('/data-cycles="([^"]+)"/', $activeHtml, $activeAttribute)) {
+        throw new RuntimeException('The home dashboard must show an active compressor cycle: ' . $activeError);
+    }
+    $activeReplay = json_decode(html_entity_decode($activeAttribute[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'), true, 512, JSON_THROW_ON_ERROR);
+    if (count($activeReplay) !== 2 || abs(time() - $activeReplay[1]['end']) > 5) {
+        throw new RuntimeException('The active replay cycle must extend to the current time.');
+    }
+    [$detailedActiveHtml, $detailedActiveError, $detailedActiveExitCode] = $renderHome([
+        'NIBE_TEST_ACTIVE_CYCLE' => '1', 'NIBE_TEST_DETAILED' => '1',
+    ]);
+    if ($detailedActiveExitCode !== 0 || !str_contains($detailedActiveHtml, '(actief)')) {
+        throw new RuntimeException('The detailed dashboard must identify the provisional cycle end: ' . $detailedActiveError);
+    }
+    [$longActiveHtml, $longActiveError, $longActiveExitCode] = $renderHome([
+        'NIBE_TEST_LONG_CYCLE' => '1', 'NIBE_TEST_DETAILED' => '1',
+    ]);
+    if ($longActiveExitCode !== 0 || !str_contains($longActiveHtml, '(actief)')) {
+        throw new RuntimeException('The default detailed view must show an active cycle that started over 24 hours ago: ' . $longActiveError);
     }
     if (str_contains($html, 'Datum/tijd (UTC)') || str_contains($html, 'Datum en tijd (UTC)')
         || preg_match('/<time class="local-time"[^>]*>[^<]*UTC<\/time>/', $html)

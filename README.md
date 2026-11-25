@@ -132,8 +132,10 @@ bronpunt-ID. Ontbrekende metingen blijven leeg; er worden geen waarden
 verzonnen. De KPI's tonen compressorstarts afgeleid van waargenomen overgangen
 van nul naar een positieve compressorfrequentie, het gemiddelde verschil tussen
 aanvoer en retour voor metingen die maximaal vijf minuten uit elkaar liggen en
-de gemiddelde, langste en kortste duur van afgeronde compressorritten. Delta T
-nu en gemiddeld over 24 uur worden alleen getoond als de temperaturen dezelfde
+de gemiddelde, langste en kortste duur van afgeronde compressorritten.
+De huidige cyclus wordt bij een recente actieve compressor met de huidige tijd
+als voorlopig einde getoond; de duurstatistieken blijven beperkt tot afgeronde cycli.
+Delta T nu en gemiddeld over 24 uur worden alleen getoond als de temperaturen dezelfde
 eenheid hebben en bij elkaar passende metingen beschikbaar zijn; het
 gemiddelde wordt voor 24 uur en 7 dagen getoond. Voor ΔT nu
 moeten de metingen maximaal vijf minuten uiteen liggen en mag de recentste
