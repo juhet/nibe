@@ -11,9 +11,10 @@ myUplink en slaat hun actuele waarden op. De pagina start zelf geen verzameling
 en vult ontbrekende metingen niet aan met verzonnen waarden.
 
 De tijdmachine toont metingen binnen vijf minuten van het gekozen tijdstip.
-De bestemming van een warmtestroom licht alleen op wanneer een waargenomen
-compressorcyclus verwarming of tapwater onderbouwt; bij onbekend bedrijf blijft
-de bestemming gedimd. Tijden en invoer in het instellingenlogboek worden in
+Bij een actieve compressor lichten de onderbouwde bestemmingen op. Als de
+bestemming onbekend is, bewegen beide uitgaande lijnen neutraal met de melding
+dat de bestemming onbekend is. Ontdooien krijgt een eigen animatie bij de
+buitenunit. Tijden en invoer in het instellingenlogboek worden in
 de tijdzone van de browser weergegeven. De bestaande dagtotalen op de
 technische pagina tonen hun werkelijke begingrens in lokale tijd.
 
