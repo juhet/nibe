@@ -97,7 +97,7 @@ $statusClass = match ($systemStatus) {
     default => 'unknown',
 };
 $measurementIds = [];
-foreach (['indoor', 'outdoor', 'hot_water', 'frequency', 'electric_power', 'heat_power', 'defrost', 'degree_minutes'] as $role) {
+foreach (['indoor', 'outdoor', 'evaporator', 'hot_water', 'frequency', 'electric_power', 'heat_power', 'defrost', 'degree_minutes'] as $role) {
     if (isset($defaultRoleMapping[$role])) {
         $measurementIds[$role] = $defaultRoleMapping[$role];
     }
@@ -355,6 +355,7 @@ if ($degreeMinuteSamples !== []) {
         .node:hover, .node:focus-visible, .node[aria-pressed="true"] { transform: scale(1.035); border-color: #8acbff36; box-shadow: 0 0 30px #4ba9ff22; background: #ffffff06; }
         .node-value { overflow-wrap: anywhere; }
         .outdoor-unit-illustration { display: block; width: clamp(80px, 13vw, 150px); height: auto; margin: 0 auto .8rem; filter: drop-shadow(5px 9px 8px #0007); }
+        .evaporator-icon { display: inline-block; width: .9rem; height: .9rem; margin-right: .25rem; vertical-align: -.15rem; color: #9dcaff; }
         .home-illustration { display: block; width: min(100%, 145px); height: auto; margin: .5rem auto; filter: drop-shadow(5px 8px 7px #0006); }
         .boiler-symbol { position: relative; display: block; width: 64px; height: 103px; margin: 5px auto 10px; border-radius: 50% / 12%; background: linear-gradient(90deg, #849da8, #e6eeee 45%, #9cb1b8); box-shadow: 7px 10px 20px #0006; }
         .boiler-symbol span { position: absolute; top: 40%; left: 37%; width: 26%; aspect-ratio: 1; border-radius: 50%; background: #81babb; box-shadow: 0 0 12px #72d8d2; }
@@ -488,6 +489,7 @@ if ($degreeMinuteSamples !== []) {
                         </svg><span class="node-label">Warmtepomp</span>
                         <span class="node-value"><?= nibe_escape($systemStatus) ?></span>
                         <span class="node-label">Compressor <span data-reading="frequency"><?= nibe_escape($formatReading('frequency')) ?><?= $readingIndicator('frequency') ?></span></span>
+                        <span class="node-label"><svg class="evaporator-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h12v12H2zM6 2v12m4-12v12M2 6h12m-12 4h12" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>Verdamper <span data-reading="evaporator"><?= nibe_escape($formatReading('evaporator')) ?><?= $readingIndicator('evaporator') ?></span></span>
                     </button>
                     <button class="node home" data-panel="woning" data-target="index_old.php#chart-title">
                         <svg class="home-illustration" viewBox="0 0 160 130" aria-hidden="true" focusable="false">
