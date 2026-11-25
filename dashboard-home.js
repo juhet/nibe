@@ -48,7 +48,7 @@
             const value = powerKw(role, point.value, point.unit);
             return value === null ? 'Niet beschikbaar' : numberFormat.format(value) + ' kW';
         }
-        const format = ['frequency', 'indoor', 'outdoor', 'hot_water'].includes(role) ? oneDecimal : numberFormat;
+        const format = ['frequency', 'indoor', 'outdoor', 'evaporator', 'hot_water'].includes(role) ? oneDecimal : numberFormat;
         return format.format(point.value) + (point.unit ? ' ' + point.unit : '');
     }
 
@@ -59,6 +59,7 @@
         const formatted = {
             indoor: 'Niet beschikbaar',
             outdoor: 'Niet beschikbaar',
+            evaporator: 'Niet beschikbaar',
             hot_water: 'Niet beschikbaar',
             frequency: 'Niet beschikbaar',
             ...Object.fromEntries(Object.entries(values).map(([role, point]) => [role, display(role, point)])),
@@ -188,9 +189,18 @@
             const key = button.dataset.panel;
             contextTitle.textContent = labels[key] || 'Installatieonderdeel';
             contextContent.textContent = details[key] || '';
+            const roles = {warmtepomp: ['frequency', 'electric_power', 'cop'], woning: ['indoor'], tapwater: ['hot_water'], buitenunit: ['outdoor', 'evaporator']};
+            const names = {frequency: 'Compressor', electric_power: 'Elektriciteit', cop: 'COP', indoor: 'Binnen', hot_water: 'Tapwater', outdoor: 'Buiten', evaporator: 'Verdamper'};
+            for (const role of roles[key] || []) {
+                const paragraph = document.createElement('p');
+                paragraph.textContent = names[role] + ': ' + (document.querySelector('[data-reading="' + role + '"]')?.textContent.trim() || 'Niet beschikbaar');
+                contextContent.append(paragraph);
+            }
             if (key === 'buitenunit') {
                 if (!button.dataset.weatherCondition) {
-                    contextContent.textContent = 'Weerdata wordt zichtbaar na de eerste geslaagde verzameling.';
+                    const unavailable = document.createElement('p');
+                    unavailable.textContent = 'Weerdata wordt zichtbaar na de eerste geslaagde verzameling.';
+                    contextContent.append(unavailable);
                 } else {
                     const summary = document.createElement('p');
                     summary.className = 'weather-condition';
@@ -214,15 +224,7 @@
                     const updated = document.createElement('p');
                     updated.className = 'weather-updated';
                     updated.textContent = 'Waargenomen ' + localDateTime(Date.parse(button.dataset.weatherTimestamp.replace(' ', 'T') + 'Z'));
-                    contextContent.replaceChildren(summary, weatherDetails, updated);
-                }
-            } else {
-                const roles = {warmtepomp: ['frequency', 'electric_power', 'cop'], woning: ['indoor'], tapwater: ['hot_water']};
-                const names = {frequency: 'Compressor', electric_power: 'Elektriciteit', cop: 'COP', indoor: 'Binnen', hot_water: 'Tapwater'};
-                for (const role of roles[key] || []) {
-                    const paragraph = document.createElement('p');
-                    paragraph.textContent = names[role] + ': ' + (document.querySelector('[data-reading="' + role + '"]')?.textContent.trim() || 'Niet beschikbaar');
-                    contextContent.append(paragraph);
+                    contextContent.append(summary, weatherDetails, updated);
                 }
             }
             contextLink.href = button.dataset.target;

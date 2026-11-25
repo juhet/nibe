@@ -70,6 +70,8 @@ class DashboardTestStatement
             ['9', '998', '1000', 'W', $now - 300],
             ['10', '43084', '0', 'kW', $now - 300],
             ['11', '44703', '0', '', $now - 300],
+            ['12', '40941', '-180', 'GM', $now - 300],
+            ['13', '44363', '-2.3', '°C', $now - 300],
         ];
         if (getenv('NIBE_TEST_STALE_READING') === '1') {
             $points[4][4] = $now - 3600;
@@ -103,6 +105,10 @@ class DashboardTestStatement
                 ['2', '36', $cycleStart + 300],
                 ['6', '45', $cycleStart],
                 ['6', '47', $cycleStart + 300],
+                ['12', '-160', $cycleStart - 300],
+                ['12', '-220', $cycleStart],
+                ['12', '-200', $cycleStart + 300],
+                ['12', '-180', $now - 300],
                 ['9', '1000', $cycleStart],
                 ['9', '1000', $cycleStart + 300],
                 ['9', '1000', $cycleStart + 600],
@@ -169,6 +175,8 @@ try {
     }
     if (!str_contains($html, '<th>COP</th>')
         || !str_contains($html, '<td>4,00</td>')
+        || !str_contains($html, 'Temperatuur verdamper')
+        || !str_contains($html, 'data-point-id="12"')
         || !str_contains($html, 'Verwarming + Warm water')
         || !str_contains($html, 'Elektrische bijverwarming')
         || !str_contains($html, 'Elektriciteit bijverwarming 24 uur')
@@ -176,6 +184,10 @@ try {
         || str_contains($html, 'COP vereist elektrisch vermogen')
         || str_contains($html, 'Koppelingen voor prestatie-inzichten')) {
         throw new RuntimeException('Recent cycles must show COP and operating type, important readings must have chart toggles, and the obsolete explanation must be absent.');
+    }
+    if (!preg_match('/<div id="charts" data-points="([^"]+)"/', $html, $chartPoints)
+        || !in_array('12', explode(',', $chartPoints[1]), true)) {
+        throw new RuntimeException('The evaporator point must be included in the temperature chart.');
     }
     if (!preg_match('/<section class="suggestions"[^>]*>(.*?)<\/section>/s', $html, $suggestionsSection)
         || !str_contains($suggestionsSection[1], 'Suggesties op basis van meetdata')
@@ -219,7 +231,13 @@ try {
         || !str_contains($homeHtml, 'Systeemoverzicht')
         || !str_contains($homeHtml, 'id="timeline-slider"')
         || !str_contains($homeHtml, 'data-panel="warmtepomp"')
+        || !str_contains($homeHtml, 'class="evaporator-icon"')
+        || !str_contains($homeHtml, 'data-reading="evaporator">-2.3 °C')
         || !str_contains($homeHtml, 'COP nu')
+        || !str_contains($homeHtml, 'id="degree-minutes-title"')
+        || !str_contains($homeHtml, 'data-reading="degree_minutes">-180')
+        || !str_contains($homeHtml, 'class="degree-chart-line"')
+        || !str_contains($homeHtml, 'data-sample-count="4"')
         || str_contains($homeHtml, 'Meetpunt-ID:')
         || str_contains($homeHtml, 'Alle meetpunten (')
         || !str_contains($homeHtml, 'Niet beschikbaar')) {
@@ -240,7 +258,7 @@ try {
     $homeScript = file_get_contents(__DIR__ . '/../dashboard-home.js');
     if (!is_string($homeScript)
         || !str_contains($homeScript, "buitenunit: 'Weer in Grootegast'")
-        || !str_contains($homeScript, 'contextContent.replaceChildren(summary, weatherDetails, updated)')
+        || !str_contains($homeScript, 'contextContent.append(summary, weatherDetails, updated)')
         || !str_contains($homeScript, 'button.dataset.weatherTimestamp')) {
         throw new RuntimeException('Selecting the outdoor visual must expose the detailed weather values.');
     }
@@ -287,6 +305,10 @@ try {
     [$emptyHtml, $emptyError, $emptyExitCode] = $renderHome(['NIBE_TEST_EMPTY_DATA' => '1']);
     if ($emptyExitCode !== 0 || !str_contains($emptyHtml, 'Er zijn nog geen meetpunten of metingen beschikbaar.')) {
         throw new RuntimeException('The visual dashboard must explain when measurements have not been collected: ' . $emptyError);
+    }
+    if (!str_contains($emptyHtml, 'Er zijn nog geen graadminutenmetingen beschikbaar in de afgelopen 24 uur.')
+        || !str_contains($emptyHtml, 'data-reading="degree_minutes">Niet beschikbaar')) {
+        throw new RuntimeException('The degree-minute card must not invent values or chart data when measurements are missing.');
     }
     [$noWeatherHtml, $noWeatherError, $noWeatherExitCode] = $renderHome(['NIBE_TEST_NO_WEATHER' => '1']);
     if ($noWeatherExitCode !== 0

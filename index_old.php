@@ -284,6 +284,7 @@ $importantRoles = [
     'indoor' => 'Temperatuur in huis',
     'hot_water' => 'Temperatuur warm tapwater',
     'outdoor' => 'Buitentemperatuur',
+    'evaporator' => 'Temperatuur verdamper',
     'degree_minutes' => 'Graadminuten',
     'frequency' => 'Compressorfrequentie',
     'calculated_supply' => 'Berekende toevoer',
@@ -292,7 +293,7 @@ $importantRoles = [
     'heat_power' => 'Warmtevermogen',
     'electric_power' => 'Elektrisch vermogen',
 ];
-$chartRoleOrder = ['hot_water', 'calculated_supply', 'supply', 'return', 'indoor', 'outdoor',
+$chartRoleOrder = ['hot_water', 'calculated_supply', 'supply', 'return', 'indoor', 'outdoor', 'evaporator',
     'degree_minutes', 'frequency'];
 $chartPointIds = array_values(array_filter(array_map(
     static fn (string $role): ?string => $defaultRoleMapping[$role] ?? null,
