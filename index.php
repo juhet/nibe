@@ -97,7 +97,7 @@ $statusClass = match ($systemStatus) {
     default => 'unknown',
 };
 $measurementIds = [];
-foreach (['indoor', 'outdoor', 'evaporator', 'hot_water', 'frequency', 'electric_power', 'heat_power', 'defrost'] as $role) {
+foreach (['indoor', 'outdoor', 'evaporator', 'hot_water', 'frequency', 'electric_power', 'heat_power', 'defrost', 'degree_minutes'] as $role) {
     if (isset($defaultRoleMapping[$role])) {
         $measurementIds[$role] = $defaultRoleMapping[$role];
     }
@@ -182,6 +182,37 @@ if ($lastDefrostTime !== null) {
 }
 usort($eventItems, static fn (array $a, array $b): int => $b['time'] <=> $a['time']);
 $eventItems = array_slice($eventItems, 0, 3);
+$degreeMinuteSamples = [];
+foreach ($historyByRole['degree_minutes'] ?? [] as $observation) {
+    $raw = $observation['raw_value'] ?? null;
+    $timestamp = $observation['source_timestamp'] ?? $observation['collected_at'] ?? null;
+    if (!is_string($raw) || trim($raw) === '' || !is_numeric($raw) || !is_finite((float) $raw)
+        || !is_string($timestamp)) {
+        continue;
+    }
+    $sampleTime = strtotime($timestamp . ' UTC');
+    if ($sampleTime === false || $sampleTime < $timelineStart || $sampleTime > $now->getTimestamp()) {
+        continue;
+    }
+    $degreeMinuteSamples[] = ['time' => $sampleTime, 'value' => (float) $raw];
+}
+usort($degreeMinuteSamples, static fn (array $a, array $b): int => $a['time'] <=> $b['time']);
+$degreeMinuteChart = [];
+if ($degreeMinuteSamples !== []) {
+    $degreeMinuteValues = array_column($degreeMinuteSamples, 'value');
+    $degreeMinuteMin = min($degreeMinuteValues);
+    $degreeMinuteMax = max($degreeMinuteValues);
+    $degreeMinuteRange = $degreeMinuteMax - $degreeMinuteMin;
+    if ($degreeMinuteRange === 0.0) {
+        $degreeMinuteRange = 1.0;
+    }
+    foreach ($degreeMinuteSamples as $sample) {
+        $degreeMinuteChart[] = [
+            'x' => 56 + 560 * ($sample['time'] - $timelineStart) / 86400,
+            'y' => 18 + 132 * ($degreeMinuteMax - $sample['value']) / $degreeMinuteRange,
+        ];
+    }
+}
 ?>
 <!doctype html>
 <html lang="nl">
@@ -284,6 +315,16 @@ $eventItems = array_slice($eventItems, 0, 3);
         .weather-detail { padding: .7rem; border-radius: .75rem; background: #ffffff08; color: var(--muted); font-size: .75rem; }
         .weather-detail strong { display: block; margin-top: .25rem; color: #eef4ff; font-size: .9rem; }
         .weather-updated { margin: 1rem 0 0; color: var(--muted); font-size: .75rem; }
+        .degree-card { overflow: hidden; background: radial-gradient(circle at 90% 15%, #66e0d126, transparent 38%), linear-gradient(145deg, #17363d, #111d2d 72%); }
+        .degree-summary { display: flex; align-items: baseline; gap: .55rem; margin: -.25rem 0 .7rem; }
+        .degree-value { color: #b6fff1; font-size: clamp(2rem, 4vw, 2.8rem); font-weight: 720; letter-spacing: -.06em; font-variant-numeric: tabular-nums; }
+        .degree-unit { color: #a9c5c6; font-size: .9rem; }
+        .degree-chart { display: block; width: 100%; height: auto; overflow: visible; }
+        .degree-chart-grid { stroke: #ffffff16; stroke-width: 1; }
+        .degree-chart-label { fill: var(--muted); font: 12px ui-sans-serif, system-ui, sans-serif; }
+        .degree-chart-line { fill: none; stroke: var(--cyan); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 5px #66e0d180); }
+        .degree-chart-point { fill: #b6fff1; stroke: #17363d; stroke-width: 2; }
+        .degree-chart-empty { margin: .5rem 0 0; color: var(--muted); font-size: .85rem; }
         .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
         .section-heading a { color: #91c7ff; font-size: .85rem; }
         .insights, .events { list-style: none; padding: 0; margin: 0; display: grid; gap: .7rem; }
@@ -545,6 +586,52 @@ $eventItems = array_slice($eventItems, 0, 3);
                     </div>
                     <p class="weather-updated">Neerslag <?= nibe_escape(number_format($weather['precipitation'], 1, ',', '') . ' ' . $weather['precipitation_unit']) ?>
                         · Waargenomen <time class="local-time" datetime="<?= nibe_escape($weather['timestamp']) ?>">tijd laden…</time></p>
+                <?php endif; ?>
+            </section>
+            <section class="card degree-card" aria-labelledby="degree-minutes-title">
+                <div class="section-heading">
+                    <h2 id="degree-minutes-title">Graadminuten</h2>
+                    <span class="eyebrow">Afgelopen 24 uur</span>
+                </div>
+                <div class="degree-summary">
+                    <?php $degreeMinuteReading = $readings['degree_minutes'] ?? null; ?>
+                    <span class="degree-value" data-reading="degree_minutes"><?= nibe_escape(
+                        $degreeMinuteReading !== null && $degreeMinuteReading['displayable'] && $degreeMinuteReading['raw'] !== null
+                            ? $degreeMinuteReading['raw']
+                            : 'Niet beschikbaar'
+                    ) ?></span>
+                    <?php if ($degreeMinuteReading !== null && $degreeMinuteReading['displayable']
+                        && $degreeMinuteReading['unit'] !== ''): ?>
+                        <span class="degree-unit"><?= nibe_escape($degreeMinuteReading['unit']) ?></span>
+                    <?php endif; ?>
+                </div>
+                <?php if ($degreeMinuteChart !== []): ?>
+                    <svg class="degree-chart" viewBox="0 0 640 190" role="img"
+                         aria-labelledby="degree-chart-title degree-chart-description"
+                         data-sample-count="<?= count($degreeMinuteChart) ?>">
+                        <title id="degree-chart-title">Verloop van de graadminuten</title>
+                        <desc id="degree-chart-description">Waargenomen graadminuten in de afgelopen 24 uur.</desc>
+                        <line class="degree-chart-grid" x1="56" y1="18" x2="616" y2="18"></line>
+                        <line class="degree-chart-grid" x1="56" y1="84" x2="616" y2="84"></line>
+                        <line class="degree-chart-grid" x1="56" y1="150" x2="616" y2="150"></line>
+                        <text class="degree-chart-label" x="48" y="22" text-anchor="end"><?= nibe_escape(number_format($degreeMinuteMax, 0, ',', '.')) ?></text>
+                        <text class="degree-chart-label" x="48" y="88" text-anchor="end"><?= nibe_escape(number_format(($degreeMinuteMax + $degreeMinuteMin) / 2, 0, ',', '.')) ?></text>
+                        <text class="degree-chart-label" x="48" y="154" text-anchor="end"><?= nibe_escape(number_format($degreeMinuteMin, 0, ',', '.')) ?></text>
+                        <text class="degree-chart-label" x="56" y="178">24 uur geleden</text>
+                        <text class="degree-chart-label" x="616" y="178" text-anchor="end">Nu</text>
+                        <?php if (count($degreeMinuteChart) > 1): ?>
+                            <polyline class="degree-chart-line" points="<?= nibe_escape(implode(' ', array_map(
+                                static fn (array $point): string => number_format($point['x'], 2, '.', '') . ',' . number_format($point['y'], 2, '.', ''),
+                                $degreeMinuteChart
+                            ))) ?>"></polyline>
+                        <?php endif; ?>
+                        <?php foreach ($degreeMinuteChart as $point): ?>
+                            <circle class="degree-chart-point" cx="<?= nibe_escape(number_format($point['x'], 2, '.', '')) ?>"
+                                    cy="<?= nibe_escape(number_format($point['y'], 2, '.', '')) ?>" r="2.5"></circle>
+                        <?php endforeach; ?>
+                    </svg>
+                <?php else: ?>
+                    <p class="degree-chart-empty">Er zijn nog geen graadminutenmetingen beschikbaar in de afgelopen 24 uur.</p>
                 <?php endif; ?>
             </section>
         </div>
