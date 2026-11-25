@@ -73,6 +73,13 @@ class DashboardTestStatement
             ['12', '40941', '-180', 'GM', $now - 300],
             ['13', '44363', '-2.3', '°C', $now - 300],
         ];
+        if (getenv('NIBE_TEST_ACTIVE_CYCLE') === '1' || getenv('NIBE_TEST_ACTIVE_UNKNOWN') === '1') {
+            $points[4][2] = '25';
+        }
+        if (getenv('NIBE_TEST_DEFROST') === '1') {
+            $points[4][4] = $now - 3600;
+            $points[8][2] = '1';
+        }
         if (getenv('NIBE_TEST_STALE_READING') === '1') {
             $points[4][4] = $now - 3600;
         } elseif (getenv('NIBE_TEST_BOUNDARY_READING') === '1') {
@@ -127,6 +134,7 @@ class DashboardTestStatement
             if (getenv('NIBE_TEST_ACTIVE_CYCLE') === '1') {
                 $events[] = ['5', '20', $now - 600];
                 $events[] = ['5', '25', $now - 300];
+                $events[] = ['2', '35', $now - 600];
             }
             if (getenv('NIBE_TEST_LONG_CYCLE') === '1') {
                 $events = array_values(array_filter($events, static fn (array $event): bool => $event[0] !== '5'));
@@ -316,6 +324,25 @@ try {
     $activeReplay = json_decode(html_entity_decode($activeAttribute[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'), true, 512, JSON_THROW_ON_ERROR);
     if (count($activeReplay) !== 2 || abs(time() - $activeReplay[1]['end']) > 5) {
         throw new RuntimeException('The active replay cycle must extend to the current time.');
+    }
+    if ($activeReplay[1]['kind'] !== 'heating'
+        || !str_contains($activeHtml, 'data-state="active" data-operation="heating"')) {
+        throw new RuntimeException('The live animation must use the observed active cycle destination.');
+    }
+    [$unknownHtml, $unknownError, $unknownExitCode] = $renderHome(['NIBE_TEST_ACTIVE_UNKNOWN' => '1']);
+    if ($unknownExitCode !== 0
+        || !str_contains($unknownHtml, 'data-state="active" data-operation="unknown"')
+        || !str_contains($unknownHtml, 'Bestemming warmtestroom onbekend')
+        || !str_contains($unknownHtml, '.twin[data-state="active"][data-operation="unknown"] .flow.heat')
+        || !str_contains($unknownHtml, '.twin[data-state="active"][data-operation="unknown"] .flow.water-flow')) {
+        throw new RuntimeException('An active compressor with unknown destination must show an explicitly uncertain animation: ' . $unknownError);
+    }
+    [$defrostHtml, $defrostError, $defrostExitCode] = $renderHome(['NIBE_TEST_DEFROST' => '1']);
+    if ($defrostExitCode !== 0
+        || !str_contains($defrostHtml, 'data-state="defrost"')
+        || !str_contains($defrostHtml, 'live-badge defrost">Ontdooien')
+        || !str_contains($defrostHtml, '.twin[data-state="defrost"] .outdoor-unit-illustration')) {
+        throw new RuntimeException('A fresh defrost must be visible even when the frequency is stale: ' . $defrostError);
     }
     [$detailedActiveHtml, $detailedActiveError, $detailedActiveExitCode] = $renderHome([
         'NIBE_TEST_ACTIVE_CYCLE' => '1', 'NIBE_TEST_DETAILED' => '1',

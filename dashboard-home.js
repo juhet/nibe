@@ -18,6 +18,7 @@
     const initialReadings = [...document.querySelectorAll('[data-reading]')].map(element => [element, element.innerHTML]);
     const initialStatus = badge.textContent;
     const initialClass = badge.className;
+    const initialOperation = twin.dataset.operation;
     const initialContext = contextContent.innerHTML;
     const initialUpdated = document.querySelector('.hero-heading .updated').innerHTML;
     let requestId = 0;
@@ -77,15 +78,14 @@
         const defrost = values.defrost?.value;
         const cycle = cycles.find(item => timestampInCycle(Number(slider.value), item));
         const operation = cycle?.kind || 'unknown';
-        const systemStatus = frequency === undefined || frequency < 0
-            ? 'Status niet beschikbaar'
-            : defrost > 0 ? 'Ontdooien' : frequency > 0
+        const systemStatus = defrost > 0 ? 'Ontdooien'
+            : frequency === undefined || frequency < 0 ? 'Status niet beschikbaar' : frequency > 0
                 ? operation === 'both' ? 'Verwarming en tapwater'
                     : operation === 'tapwater' ? 'Tapwater wordt verwarmd'
                     : operation === 'heating' ? 'Verwarming actief' : 'Compressor actief'
                 : 'Stand-by';
-        const state = frequency === undefined || frequency < 0 ? 'unknown'
-            : defrost > 0 ? 'defrost' : frequency > 0 ? 'active' : 'standby';
+        const state = defrost > 0 ? 'defrost' : frequency === undefined || frequency < 0 ? 'unknown'
+            : frequency > 0 ? 'active' : 'standby';
         twin.dataset.state = state;
         twin.dataset.operation = operation;
         badge.className = 'live-badge ' + state;
@@ -160,7 +160,7 @@
             badge.className = initialClass;
             badge.textContent = initialStatus;
             twin.dataset.state = initialClass.split(' ').pop();
-            twin.dataset.operation = 'unknown';
+            twin.dataset.operation = initialOperation;
             document.querySelector('.node.pump .node-value').textContent = initialStatus;
             document.querySelector('.hero-heading .updated').innerHTML = initialUpdated;
             status.textContent = 'Actuele metingen.';

@@ -85,10 +85,10 @@ $frequency = $readings['frequency'] ?? null;
 $defrost = $readings['defrost'] ?? null;
 $lastUpdate = $frequency['timestamp'] ?? null;
 $systemStatus = 'Status niet beschikbaar';
-if ($frequency !== null && $frequency['fresh'] && $frequency['value'] !== null && $frequency['value'] >= 0) {
-    $systemStatus = $defrost !== null && $defrost['fresh'] && $defrost['value'] > 0
-        ? 'Ontdooien'
-        : ($frequency['value'] > 0 ? 'Compressor actief' : 'Stand-by');
+if ($defrost !== null && $defrost['fresh'] && $defrost['value'] !== null && $defrost['value'] > 0) {
+    $systemStatus = 'Ontdooien';
+} elseif ($frequency !== null && $frequency['fresh'] && $frequency['value'] !== null && $frequency['value'] >= 0) {
+    $systemStatus = $frequency['value'] > 0 ? 'Compressor actief' : 'Stand-by';
 }
 $statusClass = match ($systemStatus) {
     'Compressor actief' => 'active',
@@ -145,6 +145,12 @@ foreach ($performance['cycles'] ?? [] as $cycle) {
         'start' => $start,
         'end' => $end,
     ];
+}
+$currentOperation = 'unknown';
+foreach ($timelineSegments as $segment) {
+    if ($segment['start'] <= $now->getTimestamp() && $segment['end'] >= $now->getTimestamp()) {
+        $currentOperation = $segment['kind'];
+    }
 }
 foreach ($historyByRole['auxiliary_heat_power'] ?? [] as $index => $observation) {
     $raw = $observation['raw_value'] ?? null;
@@ -349,7 +355,7 @@ if ($degreeMinuteSamples !== []) {
         .legend li:nth-child(3) i { background: #b79bff; }
         .legend li:nth-child(4) i { background: #f08080; }
         .mobile-nav { display: none; }
-        /* The installation is an illustration, not a schematic: only observed flows light up. */
+        /* The installation is an illustration, not a schematic. */
         .twin { min-height: 390px; grid-template-columns: 1fr 1.25fr 1fr; }
         .twin::before { inset: 9% 15%; border: 0; background: radial-gradient(ellipse, #3e799d24, transparent 70%); }
         .node, .node.pump { background: transparent; border: 1px solid transparent; box-shadow: none; text-align: center; display: grid; justify-items: center; align-content: center; min-width: 0; }
@@ -369,7 +375,14 @@ if ($degreeMinuteSamples !== []) {
         .twin[data-state="active"][data-operation="heating"] .flow.heat,
         .twin[data-state="active"][data-operation="tapwater"] .flow.water-flow,
         .twin[data-state="active"][data-operation="both"] .flow.heat,
-        .twin[data-state="active"][data-operation="both"] .flow.water-flow { opacity: 1; }
+        .twin[data-state="active"][data-operation="both"] .flow.water-flow,
+        .twin[data-state="active"][data-operation="unknown"] .flow.heat,
+        .twin[data-state="active"][data-operation="unknown"] .flow.water-flow { opacity: 1; }
+        .twin[data-state="active"][data-operation="unknown"] .flow.heat,
+        .twin[data-state="active"][data-operation="unknown"] .flow.water-flow { background: #8c9fb3; filter: none; }
+        .twin[data-state="defrost"] .outdoor-unit-illustration { animation: defrost-glow 2.5s ease-in-out infinite; }
+        .operation-unknown { display: none; position: absolute; bottom: 0; left: 0; right: 0; text-align: center; color: var(--muted); font-size: .75rem; }
+        .twin[data-state="active"][data-operation="unknown"] .operation-unknown { display: block; }
         .flow-label { display: none; }
         .timeline-segment.unknown { background: #8c9fb3; }
         .timeline-segment.both { background: linear-gradient(90deg, var(--cyan), var(--warm)); }
@@ -379,6 +392,7 @@ if ($degreeMinuteSamples !== []) {
         .live-badge.active::before, .live-badge.defrost::before { animation: status-glow 2.5s ease-in-out infinite; }
         @keyframes energy-flow { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
         @keyframes status-glow { 50% { opacity: .5; box-shadow: 0 0 3px currentColor; } }
+        @keyframes defrost-glow { 50% { filter: drop-shadow(0 0 15px #b79bff); } }
         [hidden] { display: none !important; }
         @media (max-width: 1050px) {
             .layout { grid-template-columns: 78px minmax(0, 1fr); }
@@ -462,10 +476,11 @@ if ($degreeMinuteSamples !== []) {
                     <h2 id="system-title">Systeemoverzicht</h2>
                     <span class="updated"><?php if (is_string($lastUpdate) && $lastUpdate !== ''): ?>Compressor bijgewerkt <time class="local-time" datetime="<?= nibe_escape($lastUpdate) ?>">tijd laden…</time><?php else: ?>Actuele metingen<?php endif; ?></span>
                 </div>
-                <div class="twin" data-state="<?= nibe_escape($statusClass) ?>" data-operation="unknown" aria-label="Interactief systeemmodel">
+                <div class="twin" data-state="<?= nibe_escape($statusClass) ?>" data-operation="<?= nibe_escape($currentOperation) ?>" aria-label="Interactief systeemmodel">
                     <span class="flow electric" aria-hidden="true"></span>
                     <span class="flow heat" aria-hidden="true"></span>
                     <span class="flow water-flow" aria-hidden="true"></span>
+                    <span class="operation-unknown">Bestemming warmtestroom onbekend</span>
                     <span class="flow-label electric-label">Elektriciteit <span data-reading="electric_power"><?= $electricKw === null ? '—' : nibe_escape($formatNumber($electricKw, 2) . ' kW') ?></span></span>
                     <span class="flow-label heat-label">Warmte <span data-reading="heat_power"><?= $heatKw === null ? '—' : nibe_escape($formatNumber($heatKw, 2) . ' kW') ?></span></span>
                     <span class="flow-label water-label">Tapwater</span>
