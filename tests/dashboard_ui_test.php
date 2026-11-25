@@ -70,6 +70,7 @@ class DashboardTestStatement
             ['9', '998', '1000', 'W', $now - 300],
             ['10', '43084', '0', 'kW', $now - 300],
             ['11', '44703', '0', '', $now - 300],
+            ['12', '40941', '-180', 'GM', $now - 300],
         ];
         if (getenv('NIBE_TEST_STALE_READING') === '1') {
             $points[4][4] = $now - 3600;
@@ -103,6 +104,10 @@ class DashboardTestStatement
                 ['2', '36', $cycleStart + 300],
                 ['6', '45', $cycleStart],
                 ['6', '47', $cycleStart + 300],
+                ['12', '-160', $cycleStart - 300],
+                ['12', '-220', $cycleStart],
+                ['12', '-200', $cycleStart + 300],
+                ['12', '-180', $now - 300],
                 ['9', '1000', $cycleStart],
                 ['9', '1000', $cycleStart + 300],
                 ['9', '1000', $cycleStart + 600],
@@ -222,6 +227,10 @@ try {
         || !str_contains($homeHtml, 'COP nu')
         || !str_contains($homeHtml, 'Weer in Grootegast')
         || !str_contains($homeHtml, '8,5 °C')
+        || !str_contains($homeHtml, 'id="degree-minutes-title"')
+        || !str_contains($homeHtml, 'data-reading="degree_minutes">-180')
+        || !str_contains($homeHtml, 'class="degree-chart-line"')
+        || !str_contains($homeHtml, 'data-sample-count="4"')
         || str_contains($homeHtml, 'Meetpunt-ID:')
         || str_contains($homeHtml, 'Alle meetpunten (')
         || !str_contains($homeHtml, 'Niet beschikbaar')) {
@@ -270,6 +279,10 @@ try {
     [$emptyHtml, $emptyError, $emptyExitCode] = $renderHome(['NIBE_TEST_EMPTY_DATA' => '1']);
     if ($emptyExitCode !== 0 || !str_contains($emptyHtml, 'Er zijn nog geen meetpunten of metingen beschikbaar.')) {
         throw new RuntimeException('The visual dashboard must explain when measurements have not been collected: ' . $emptyError);
+    }
+    if (!str_contains($emptyHtml, 'Er zijn nog geen graadminutenmetingen beschikbaar in de afgelopen 24 uur.')
+        || !str_contains($emptyHtml, 'data-reading="degree_minutes">Niet beschikbaar')) {
+        throw new RuntimeException('The degree-minute card must not invent values or chart data when measurements are missing.');
     }
     [$noWeatherHtml, $noWeatherError, $noWeatherExitCode] = $renderHome(['NIBE_TEST_NO_WEATHER' => '1']);
     if ($noWeatherExitCode !== 0 || !str_contains($noWeatherHtml, 'Weerdata wordt zichtbaar na de eerste geslaagde verzameling.')) {
