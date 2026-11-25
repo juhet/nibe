@@ -176,13 +176,13 @@
         warmtepomp: 'Warmtepomp',
         woning: 'Temperatuur in huis',
         tapwater: 'Tapwater',
-        buitenunit: 'Buitenlucht en defrost',
+        buitenunit: 'Weer in Grootegast',
     };
     const details = {
         warmtepomp: 'Compressorfrequentie, actueel elektrisch vermogen en COP op basis van beschikbare metingen.',
         woning: 'De meest recente binnentemperatuur en de temperatuurhistorie van de installatie.',
         tapwater: 'De meest recente gemeten tapwatertemperatuur en bijbehorende historie.',
-        buitenunit: 'De meest recente buiten- en verdampertemperatuur en waargenomen defrostcycli.',
+        buitenunit: 'Actuele weersomstandigheden bij je installatie.',
     };
     for (const button of document.querySelectorAll('.node[data-panel]')) {
         button.addEventListener('click', () => {
@@ -195,6 +195,37 @@
                 const paragraph = document.createElement('p');
                 paragraph.textContent = names[role] + ': ' + (document.querySelector('[data-reading="' + role + '"]')?.textContent.trim() || 'Niet beschikbaar');
                 contextContent.append(paragraph);
+            }
+            if (key === 'buitenunit') {
+                if (!button.dataset.weatherCondition) {
+                    const unavailable = document.createElement('p');
+                    unavailable.textContent = 'Weerdata wordt zichtbaar na de eerste geslaagde verzameling.';
+                    contextContent.append(unavailable);
+                } else {
+                    const summary = document.createElement('p');
+                    summary.className = 'weather-condition';
+                    summary.textContent = button.dataset.weatherCondition + ' · ' + button.dataset.weatherTemperature;
+                    const weatherDetails = document.createElement('div');
+                    weatherDetails.className = 'weather-details';
+                    for (const [label, value] of [
+                        ['Gevoel', button.dataset.weatherApparent],
+                        ['Luchtvochtigheid', button.dataset.weatherHumidity],
+                        ['Wind', button.dataset.weatherWind],
+                        ['Neerslag', button.dataset.weatherPrecipitation],
+                    ]) {
+                        const detail = document.createElement('div');
+                        detail.className = 'weather-detail';
+                        detail.textContent = label;
+                        const strong = document.createElement('strong');
+                        strong.textContent = value;
+                        detail.append(strong);
+                        weatherDetails.append(detail);
+                    }
+                    const updated = document.createElement('p');
+                    updated.className = 'weather-updated';
+                    updated.textContent = 'Waargenomen ' + localDateTime(Date.parse(button.dataset.weatherTimestamp.replace(' ', 'T') + 'Z'));
+                    contextContent.append(summary, weatherDetails, updated);
+                }
             }
             contextLink.href = button.dataset.target;
             contextPanel.hidden = false;

@@ -103,12 +103,15 @@ foreach (['indoor', 'outdoor', 'evaporator', 'hot_water', 'frequency', 'electric
     }
 }
 $availableInsights = array_slice($suggestions, 0, 3);
+$weatherCondition = $weather === null ? null : nibe_dashboard_weather_condition($weather['weather_code']);
 $weatherSymbol = $weather === null ? '◌' : match (true) {
     in_array($weather['weather_code'], [0, 1], true) => $weather['is_day'] ? '☀' : '☾',
-    in_array($weather['weather_code'], [2, 3, 45, 48], true) => '☁',
+    in_array($weather['weather_code'], [2, 3], true) => '☁',
+    in_array($weather['weather_code'], [45, 48], true) => '≋',
     in_array($weather['weather_code'], [71, 73, 75, 77, 85, 86], true) => '❄',
     in_array($weather['weather_code'], [95, 96, 99], true) => '⚡',
-    default => '☂',
+    in_array($weather['weather_code'], [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82], true) => '☂',
+    default => '◌',
 };
 $compressor24h = $performance['compressor_periods']['24h'] ?? [];
 if (count($availableInsights) < 3 && ($compressor24h['complete'] ?? false)
@@ -304,12 +307,8 @@ if ($degreeMinuteSamples !== []) {
         .context-link { display: inline-flex; margin-top: .8rem; color: #91c7ff; font-weight: 600; }
         .context-close { display: none; }
         .context.details-open .context-close { display: inline-flex; float: right; border: 0; background: transparent; color: var(--muted); padding: .3rem; cursor: pointer; }
-        .lower-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .75fr); gap: 1rem; margin-top: 1rem; }
+        .lower-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; margin-top: 1rem; }
         .card, .timeline { padding: 1.25rem; }
-        .weather-card { position: relative; overflow: hidden; background: radial-gradient(circle at 88% 18%, #70a9ff26, transparent 34%), linear-gradient(145deg, #19334a, #111d2d 72%); }
-        .weather-summary { display: flex; align-items: center; gap: 1rem; }
-        .weather-symbol { color: #b9ddff; font-size: 3.4rem; line-height: 1; text-shadow: 0 0 28px #70a9ff55; }
-        .weather-temperature { font-size: clamp(2.2rem, 5vw, 3rem); font-weight: 700; letter-spacing: -.06em; }
         .weather-condition { color: #c3d0e1; }
         .weather-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; margin-top: 1rem; }
         .weather-detail { padding: .7rem; border-radius: .75rem; background: #ffffff08; color: var(--muted); font-size: .75rem; }
@@ -468,8 +467,17 @@ if ($degreeMinuteSamples !== []) {
                     <span class="flow-label electric-label">Elektriciteit <span data-reading="electric_power"><?= $electricKw === null ? '—' : nibe_escape($formatNumber($electricKw, 2) . ' kW') ?></span></span>
                     <span class="flow-label heat-label">Warmte <span data-reading="heat_power"><?= $heatKw === null ? '—' : nibe_escape($formatNumber($heatKw, 2) . ' kW') ?></span></span>
                     <span class="flow-label water-label">Tapwater</span>
-                    <button class="node outdoor" data-panel="buitenunit" data-target="index_old.php#chart-title">
-                        <span class="node-icon" aria-hidden="true">☼</span><span class="node-label">Buitenlucht</span>
+                    <button class="node outdoor" data-panel="buitenunit" data-target="index_old.php#chart-title"
+                            aria-controls="context-panel"
+                            data-weather-condition="<?= nibe_escape($weatherCondition ?? '') ?>"
+                            data-weather-temperature="<?= nibe_escape($weather === null ? '' : number_format($weather['temperature'], 1, ',', '') . ' ' . $weather['temperature_unit']) ?>"
+                            data-weather-apparent="<?= nibe_escape($weather === null ? '' : number_format($weather['apparent_temperature'], 1, ',', '') . ' ' . $weather['temperature_unit']) ?>"
+                            data-weather-humidity="<?= nibe_escape($weather === null ? '' : number_format($weather['humidity'], 0, ',', '') . $weather['humidity_unit']) ?>"
+                            data-weather-wind="<?= nibe_escape($weather === null ? '' : number_format($weather['wind_speed'], 1, ',', '') . ' ' . $weather['wind_speed_unit']) ?>"
+                            data-weather-precipitation="<?= nibe_escape($weather === null ? '' : number_format($weather['precipitation'], 1, ',', '') . ' ' . $weather['precipitation_unit']) ?>"
+                            data-weather-timestamp="<?= nibe_escape($weather['timestamp'] ?? '') ?>">
+                        <span class="node-icon" aria-hidden="true"><?= nibe_escape($weatherSymbol) ?></span><span class="node-label">Buitenlucht</span>
+                        <?php if ($weatherCondition !== null): ?><span class="node-label"><?= nibe_escape($weatherCondition) ?></span><?php endif; ?>
                         <span class="node-value" data-reading="outdoor"><?= nibe_escape($formatReading('outdoor')) ?><?= $readingIndicator('outdoor') ?></span>
                     </button>
                     <button class="node pump" data-panel="warmtepomp" data-target="index_old.php#performance-title">
@@ -565,27 +573,6 @@ if ($degreeMinuteSamples !== []) {
                     </ul>
                 <?php else: ?>
                     <p class="empty-events">Er zijn geen recente compressorcycli beschikbaar in de verzamelde historie.</p>
-                <?php endif; ?>
-            </section>
-            <section class="card weather-card" aria-labelledby="weather-title">
-                <div class="section-heading"><h2 id="weather-title">Weer in Grootegast</h2><span class="eyebrow">Open-Meteo</span></div>
-                <?php if ($weather === null): ?>
-                    <p class="empty-events">Weerdata wordt zichtbaar na de eerste geslaagde verzameling.</p>
-                <?php else: ?>
-                    <div class="weather-summary">
-                        <span class="weather-symbol" aria-hidden="true"><?= nibe_escape($weatherSymbol) ?></span>
-                        <div>
-                            <div class="weather-temperature"><?= nibe_escape(number_format($weather['temperature'], 1, ',', '') . ' ' . $weather['temperature_unit']) ?></div>
-                            <div class="weather-condition"><?= nibe_escape(nibe_dashboard_weather_condition($weather['weather_code'])) ?></div>
-                        </div>
-                    </div>
-                    <div class="weather-details">
-                        <div class="weather-detail">Gevoel<strong><?= nibe_escape(number_format($weather['apparent_temperature'], 1, ',', '') . ' ' . $weather['temperature_unit']) ?></strong></div>
-                        <div class="weather-detail">Luchtvochtigheid<strong><?= nibe_escape(number_format($weather['humidity'], 0, ',', '') . $weather['humidity_unit']) ?></strong></div>
-                        <div class="weather-detail">Wind<strong><?= nibe_escape(number_format($weather['wind_speed'], 1, ',', '') . ' ' . $weather['wind_speed_unit']) ?></strong></div>
-                    </div>
-                    <p class="weather-updated">Neerslag <?= nibe_escape(number_format($weather['precipitation'], 1, ',', '') . ' ' . $weather['precipitation_unit']) ?>
-                        · Waargenomen <time class="local-time" datetime="<?= nibe_escape($weather['timestamp']) ?>">tijd laden…</time></p>
                 <?php endif; ?>
             </section>
             <section class="card degree-card" aria-labelledby="degree-minutes-title">
