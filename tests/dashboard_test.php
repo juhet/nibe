@@ -240,6 +240,7 @@ $sourcePointIds = [
     'indoor' => '40033',
     'hot_water' => '40013',
     'outdoor' => '44362',
+    'evaporator' => '44363',
     'degree_minutes' => '40941',
     'frequency' => '44701',
     'calculated_supply' => '43009',
@@ -270,6 +271,11 @@ expect_same('Aanvoer', nibe_dashboard_point_name([
     'source_point_id' => '44058',
     'name' => 'Supply line (EB101-BT12)',
 ]), 'known points use friendly names');
+expect_same('Temperatuur verdamper', nibe_dashboard_point_name([
+    'source_device_id' => $deviceId,
+    'source_point_id' => '44363',
+    'name' => 'Evaporator (EB101-BT16)',
+]), 'the evaporator point uses a friendly name');
 expect_same('Supply line (EB101-BT12)', nibe_dashboard_point_name([
     'source_device_id' => 'another-device',
     'source_point_id' => '44058',

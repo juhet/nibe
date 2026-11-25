@@ -7,6 +7,7 @@ function nibe_dashboard_default_role_mapping(array $measurements): array
         'indoor' => '40033',
         'hot_water' => '40013',
         'outdoor' => '44362',
+        'evaporator' => '44363',
         'degree_minutes' => '40941',
         'frequency' => '44701',
         'calculated_supply' => '43009',
@@ -69,6 +70,7 @@ function nibe_dashboard_role_mapping(array $measurements, ?string $configuredRol
 
     $allowedRoles = [
         'electric_power', 'heat_power', 'auxiliary_heat_power', 'electric_energy', 'heat_energy', 'defrost',
+        'evaporator',
     ];
     $availableIds = [];
     foreach ($measurements as $measurement) {
@@ -97,6 +99,7 @@ function nibe_dashboard_point_name(array $point): string
         '40033' => 'Temperatuur in huis',
         '40013' => 'Temperatuur warm tapwater',
         '44362' => 'Buitentemperatuur',
+        '44363' => 'Temperatuur verdamper',
         '40941' => 'Graadminuten',
         '44701' => 'Compressorfrequentie',
         '43009' => 'Berekende toevoer',
