@@ -505,7 +505,7 @@ if ($nibeDashboardDataOnly ?? false) {
             };
             $periodCycles = array_values(array_filter(
                 $performance['cycles'],
-                static fn (array $cycle): bool => $cycle['start'] >= $cycleCutoff
+                static fn (array $cycle): bool => !$cycle['is_complete'] || $cycle['start'] >= $cycleCutoff
             ));
             $periodCycles = array_slice(array_reverse($periodCycles), 0, 100);
             ?>

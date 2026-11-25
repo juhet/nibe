@@ -123,6 +123,13 @@ class DashboardTestStatement
                 $events[] = ['5', '20', $now - 600];
                 $events[] = ['5', '25', $now - 300];
             }
+            if (getenv('NIBE_TEST_LONG_CYCLE') === '1') {
+                $events = array_values(array_filter($events, static fn (array $event): bool => $event[0] !== '5'));
+                $events[] = ['5', '0', $now - 25 * 3600 - 300];
+                for ($time = $now - 25 * 3600; $time <= $now; $time += 3600) {
+                    $events[] = ['5', '20', $time];
+                }
+            }
             $defrostStarts = [];
             for ($defrost = 0; $defrost < 12; $defrost++) {
                 $defrostStarts[] = $now - (23 - 2 * $defrost) * 3600;
@@ -289,6 +296,12 @@ try {
     ]);
     if ($detailedActiveExitCode !== 0 || !str_contains($detailedActiveHtml, '(actief)')) {
         throw new RuntimeException('The detailed dashboard must identify the provisional cycle end: ' . $detailedActiveError);
+    }
+    [$longActiveHtml, $longActiveError, $longActiveExitCode] = $renderHome([
+        'NIBE_TEST_LONG_CYCLE' => '1', 'NIBE_TEST_DETAILED' => '1',
+    ]);
+    if ($longActiveExitCode !== 0 || !str_contains($longActiveHtml, '(actief)')) {
+        throw new RuntimeException('The default detailed view must show an active cycle that started over 24 hours ago: ' . $longActiveError);
     }
     if (str_contains($html, 'Datum/tijd (UTC)') || str_contains($html, 'Datum en tijd (UTC)')
         || preg_match('/<time class="local-time"[^>]*>[^<]*UTC<\/time>/', $html)

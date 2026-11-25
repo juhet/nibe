@@ -325,15 +325,32 @@ function nibe_dashboard_compressor_cycles(array $samples, array $units, ?int $no
             $deltaT = [];
             $returns = $inside($samples['return'] ?? []);
             $usedReturns = [];
+            $returnOrder = array_keys($returns);
+            usort($returnOrder, static fn (int $a, int $b): int => $returns[$a]['time'] <=> $returns[$b]['time'] ?: $a <=> $b);
             foreach ($inside($samples['supply'] ?? []) as $supply) {
                 $nearest = null;
                 $distance = 301;
-                foreach ($returns as $returnIndex => $return) {
+                $low = 0;
+                $high = count($returnOrder);
+                while ($low < $high) {
+                    $middle = intdiv($low + $high, 2);
+                    if ($returns[$returnOrder[$middle]]['time'] < $supply['time'] - 300) {
+                        $low = $middle + 1;
+                    } else {
+                        $high = $middle;
+                    }
+                }
+                for ($position = $low; isset($returnOrder[$position]); $position++) {
+                    $returnIndex = $returnOrder[$position];
+                    $return = $returns[$returnIndex];
+                    if ($return['time'] > $supply['time'] + 300) {
+                        break;
+                    }
                     if (isset($usedReturns[$returnIndex])) {
                         continue;
                     }
                     $candidate = abs($supply['time'] - $return['time']);
-                    if ($candidate < $distance) {
+                    if ($candidate < $distance || ($candidate === $distance && $returnIndex < $nearest)) {
                         $nearest = $returnIndex;
                         $distance = $candidate;
                     }
@@ -1376,7 +1393,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         'compressor_comparisons' => $compressorComparisons,
         'cycles' => array_values(array_filter(
             $cycles,
-            static fn (array $cycle): bool => $cycle['start'] >= $windows['30d']
+            static fn (array $cycle): bool => !$cycle['is_complete'] || $cycle['start'] >= $windows['30d']
         )),
         'frequency_distribution' => $frequencyDistribution,
         'frequency_seconds' => $frequencySeconds,
