@@ -362,6 +362,7 @@ if ($nibeDashboardDataOnly ?? false) {
         .legend span { display: inline-block; width: 1em; height: .2em; vertical-align: middle; }
         .comparison { white-space: pre-line; }
         .settings-table-wrap { overflow-x: auto; }
+        .degree-day-trend { display: block; width: 100%; max-width: 640px; height: auto; }
         .settings-table { width: 100%; border-collapse: collapse; }
         .settings-table th, .settings-table td { padding: .6rem; border-bottom: 1px solid #d8e0e6; text-align: left; vertical-align: top; }
         .settings-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
@@ -657,6 +658,61 @@ if ($nibeDashboardDataOnly ?? false) {
                     <?php endforeach; ?>
                 </ul>
             </details>
+            <h3>Warmtevraag en weersgenormaliseerd verbruik</h3>
+            <?php $heatingAnalysis = $performance['heating_analysis'] ?? ['periods' => [], 'daily' => []]; ?>
+            <div class="settings-table-wrap">
+                <table class="settings-table">
+                    <thead><tr><th>Periode</th><th>Warmteverlies</th><th>Warmtevraag bij 0 °C</th><th>Elektriciteit / graaddag</th><th>Warmte / graaddag</th><th>Gem. COP</th><th>Indicatie</th></tr></thead>
+                    <tbody>
+                        <?php foreach (['24h' => 'Laatste 24 uur', '7d' => 'Laatste 7 dagen', '30d' => 'Laatste 30 dagen'] as $period => $label): ?>
+                            <?php $analysis = $heatingAnalysis['periods'][$period] ?? []; ?>
+                            <tr>
+                                <th scope="row"><?= nibe_escape($label) ?></th>
+                                <td><?= ($analysis['heat_loss_w_per_k'] ?? null) === null ? 'Onvoldoende gegevens' : nibe_escape(number_format($analysis['heat_loss_w_per_k'], 0, ',', '') . ' W/K') ?></td>
+                                <td><?= ($analysis['heat_demand_at_zero_kw'] ?? null) === null ? 'Onvoldoende gegevens' : nibe_escape(number_format($analysis['heat_demand_at_zero_kw'], 1, ',', '') . ' kW') ?></td>
+                                <td><?= ($analysis['electricity_per_degree_day'] ?? null) === null ? 'Onvoldoende gegevens' : nibe_escape(number_format($analysis['electricity_per_degree_day'], 1, ',', '') . ' kWh/graaddag') ?></td>
+                                <td><?= ($analysis['heat_per_degree_day'] ?? null) === null ? 'Onvoldoende gegevens' : nibe_escape(number_format($analysis['heat_per_degree_day'], 1, ',', '') . ' kWh/graaddag') ?></td>
+                                <td><?= ($analysis['average_cop'] ?? null) === null ? '—' : nibe_escape(number_format($analysis['average_cop'], 2, ',', '')) ?></td>
+                                <td><?= nibe_escape(($analysis['benchmark'] ?? null) ?? 'Onvoldoende gegevens') ?> · <?= nibe_escape($analysis['reliability'] ?? 'Onvoldoende gegevens') ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <p class="muted">Graaddagen gebruiken een vaste binnentemperatuurbasis van 20 °C: per interval telt alleen max(0, 20 °C − buitentemperatuur) mee. Energie en graaddagen tellen alleen mee voor gemeten intervallen met warmte-, elektriciteits- en buitentemperatuurmetingen die maximaal 5 minuten bij de intervalgrenzen liggen; intervallen langer dan 15 minuten worden overgeslagen. Warmteverlies en warmtevraag zijn indicatief, geen bouwkundige meting. De prestatie-indicatie is geen woningvergelijking: woningtype, grootte, ventilatie en bewonersgedrag hebben grote invloed.</p>
+            <h4>Elektriciteit per graaddag — trend laatste 30 dagen</h4>
+            <?php
+            $trendValues = array_values(array_filter(
+                $heatingAnalysis['daily'] ?? [],
+                static fn (array $day): bool => ($day['electricity_per_degree_day'] ?? null) !== null
+            ));
+            $trendPoints = [];
+            if (count($trendValues) >= 2) {
+                $trendNumbers = array_column($trendValues, 'electricity_per_degree_day');
+                $trendMin = min($trendNumbers);
+                $trendMax = max($trendNumbers);
+                foreach ($trendValues as $index => $day) {
+                    $x = 30 + 580 * $index / (count($trendValues) - 1);
+                    $y = 150 - 120 * (($day['electricity_per_degree_day'] - $trendMin) / max(0.01, $trendMax - $trendMin));
+                    $trendPoints[] = number_format($x, 1, '.', '') . ',' . number_format($y, 1, '.', '');
+                }
+            }
+            ?>
+            <?php if (count($trendValues) >= 2): ?>
+                <svg class="degree-day-trend" role="img" aria-label="Elektriciteitsverbruik per graaddag door de tijd" viewBox="0 0 640 180">
+                    <line x1="30" y1="150" x2="610" y2="150" stroke="currentColor" opacity=".3"></line>
+                    <polyline points="<?= nibe_escape(implode(' ', $trendPoints)) ?>" fill="none" stroke="currentColor" stroke-width="3"></polyline>
+                    <?php foreach ($trendValues as $index => $day): ?>
+                        <?php [$x, $y] = explode(',', $trendPoints[$index]); ?>
+                        <circle cx="<?= nibe_escape($x) ?>" cy="<?= nibe_escape($y) ?>" r="3" fill="currentColor">
+                            <title><?= nibe_escape($day['date'] ?? '') ?>: <?= nibe_escape(number_format($day['electricity_per_degree_day'], 1, ',', '')) ?> kWh/graaddag</title>
+                        </circle>
+                    <?php endforeach; ?>
+                </svg>
+                <p class="muted">Elke punt is een dag op basis van gemeten intervallen; dagen zonder bruikbare graaddagen worden niet getoond.</p>
+            <?php else: ?>
+                <p class="muted">Nog onvoldoende gemeten dagen voor een trendgrafiek.</p>
+            <?php endif; ?>
             <h3>Elektrische bijverwarming</h3>
             <div class="metric-grid">
                 <div class="metric">Bijverwarmingsvermogen nu<strong><?= $performance['auxiliary_heat_power_now'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($performance['auxiliary_heat_power_now'], 2, ',', '') . ' kW') ?></strong>

@@ -72,6 +72,7 @@ class DashboardTestStatement
             ['11', '44703', '0', '', $now - 300],
             ['12', '40941', '-180', 'GM', $now - 300],
             ['13', '44363', '-2.3', '°C', $now - 300],
+            ['14', '44362', '0', '°C', $now - 300],
         ];
         if (getenv('NIBE_TEST_ACTIVE_CYCLE') === '1' || getenv('NIBE_TEST_ACTIVE_UNKNOWN') === '1') {
             $points[4][2] = '25';
@@ -126,10 +127,25 @@ class DashboardTestStatement
                 ['4', '4', $cycleStart],
                 ['4', '4', $cycleStart + 300],
                 ['4', '4', $cycleStart + 600],
+                ['4', '4', $now - 2800],
+                ['4', '4', $now - 2500],
+                ['4', '4', $now - 2200],
+                ['4', '4', $now - 1900],
                 ['1', '40', $now - 600],
                 ['2', '35', $now - 295],
                 ['9', '1000', $now - 300],
+                ['9', '1000', $now - 2800],
+                ['9', '1000', $now - 2500],
+                ['9', '1000', $now - 2200],
+                ['9', '1000', $now - 1900],
                 ['4', '3', $now - 901],
+                ['14', '0', $cycleStart],
+                ['14', '0', $cycleStart + 300],
+                ['14', '0', $cycleStart + 600],
+                ['14', '0', $now - 2800],
+                ['14', '0', $now - 2500],
+                ['14', '0', $now - 2200],
+                ['14', '0', $now - 1900],
             ];
             if (getenv('NIBE_TEST_ACTIVE_CYCLE') === '1') {
                 $events[] = ['5', '20', $now - 600];
@@ -194,6 +210,10 @@ try {
     }
     if (!str_contains($html, '<th>COP</th>')
         || !str_contains($html, '<td>4,00</td>')
+        || !str_contains($html, 'Warmtevraag en weersgenormaliseerd verbruik')
+        || !str_contains($html, '200 W/K')
+        || !str_contains($html, 'Elektriciteit per graaddag — trend laatste 30 dagen')
+        || !str_contains($html, 'woningtype, grootte, ventilatie en bewonersgedrag')
         || !str_contains($html, 'Temperatuur verdamper')
         || !str_contains($html, 'data-point-id="12"')
         || !str_contains($html, 'Verwarming + Warm water')
@@ -248,6 +268,7 @@ try {
     [$homeHtml, $homeError, $exitCode] = $renderHome();
     if ($exitCode !== 0 || !str_contains($homeHtml, 'Energie · Overzicht')
         || !str_contains($homeHtml, 'Systeemoverzicht')
+        || str_contains($homeHtml, 'Warmtevraag en weersgenormaliseerd verbruik')
         || !str_contains($homeHtml, 'id="timeline-slider"')
         || !str_contains($homeHtml, 'data-panel="warmtepomp"')
         || !str_contains($homeHtml, 'class="evaporator-icon"')

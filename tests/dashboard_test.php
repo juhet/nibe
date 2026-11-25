@@ -687,6 +687,74 @@ $invalidDebug = nibe_dashboard_performance_metrics([
 expect_same(true, in_array(['ok' => false, 'message' => 'Elektrisch vermogen: waarde is geen numerieke string'],
     $invalidDebug['debug']['cop_now'], true), 'debug explains why observations were rejected');
 
+$heatingSamples = [];
+foreach ([-1200, -900, -600, -300] as $offset) {
+    $time = $debugNow->getTimestamp() + $offset;
+    $heatingSamples['heat_power'][] = ['time' => $time, 'value' => 4.0];
+    $heatingSamples['electric_power'][] = ['time' => $time, 'value' => 1000.0];
+    $heatingSamples['outdoor'][] = ['time' => $time, 'value' => 0.0];
+}
+$heatingAnalysis = nibe_dashboard_heating_analysis(
+    $heatingSamples,
+    ['heat_power' => 'kW', 'electric_power' => 'W', 'outdoor' => '°C'],
+    ['24h' => $debugNow->getTimestamp() - 86400, '7d' => $debugNow->getTimestamp() - 7 * 86400,
+        '30d' => $debugNow->getTimestamp() - 30 * 86400],
+    $debugNow->getTimestamp()
+);
+expect_same(0.2083, round($heatingAnalysis['periods']['24h']['degree_days'], 4),
+    'degree days use the 20 °C base and only matched observed intervals');
+expect_same(1.0, round($heatingAnalysis['periods']['24h']['heat_kwh'], 4),
+    'heating analysis integrates thermal power over actual interval durations');
+expect_same(0.25, round($heatingAnalysis['periods']['24h']['electricity_kwh'], 4),
+    'heating analysis pairs measured electrical and thermal power');
+expect_same(1.2, round($heatingAnalysis['periods']['24h']['electricity_per_degree_day'], 1),
+    'electricity is normalized by degree days');
+expect_same(4.8, round($heatingAnalysis['periods']['24h']['heat_per_degree_day'], 1),
+    'heat production is normalized by degree days');
+expect_same(200.0, round($heatingAnalysis['periods']['24h']['heat_loss_w_per_k'], 1),
+    'heat-loss coefficient follows heat energy divided by degree-hours');
+expect_same(4.0, round($heatingAnalysis['periods']['24h']['heat_demand_at_zero_kw'], 1),
+    'heat demand at zero degrees uses the 20 °C indoor base');
+expect_same(4.0, $heatingAnalysis['periods']['24h']['average_cop'],
+    'normalized analysis reports average COP from paired energy');
+expect_same(1.0, round(array_sum(array_column($heatingAnalysis['daily'], 'heat_kwh')), 4),
+    'daily trend buckets are not duplicated across summary periods');
+expect_same('Uitstekende prestatie', $heatingAnalysis['periods']['24h']['benchmark'],
+    'benchmark uses the specified normalized electricity thresholds');
+$warmSamples = $heatingSamples;
+foreach ($warmSamples['outdoor'] as &$outdoorSample) {
+    $outdoorSample['value'] = 25.0;
+}
+unset($outdoorSample);
+expect_same(null, nibe_dashboard_heating_analysis(
+    $warmSamples,
+    ['heat_power' => 'kW', 'electric_power' => 'W', 'outdoor' => '°C'],
+    ['24h' => $debugNow->getTimestamp() - 86400, '7d' => $debugNow->getTimestamp() - 7 * 86400,
+        '30d' => $debugNow->getTimestamp() - 30 * 86400],
+    $debugNow->getTimestamp()
+)['periods']['24h']['electricity_per_degree_day'], 'temperatures above the base add no degree days');
+$longGapSamples = ['heat_power' => [], 'electric_power' => [], 'outdoor' => []];
+foreach ([-1800, -600, -300] as $offset) {
+    $time = $debugNow->getTimestamp() + $offset;
+    $longGapSamples['heat_power'][] = ['time' => $time, 'value' => 4.0];
+    $longGapSamples['electric_power'][] = ['time' => $time, 'value' => 1000.0];
+    $longGapSamples['outdoor'][] = ['time' => $time, 'value' => 0.0];
+}
+expect_same(null, nibe_dashboard_heating_analysis(
+    $longGapSamples,
+    ['heat_power' => 'kW', 'electric_power' => 'W', 'outdoor' => '°C'],
+    ['24h' => $debugNow->getTimestamp() - 86400, '7d' => $debugNow->getTimestamp() - 7 * 86400,
+        '30d' => $debugNow->getTimestamp() - 30 * 86400],
+    $debugNow->getTimestamp()
+)['periods']['24h']['electricity_per_degree_day'], 'long measurement gaps are not bridged');
+expect_same(null, nibe_dashboard_heating_analysis(
+    $heatingSamples,
+    ['heat_power' => 'kW', 'electric_power' => 'W', 'outdoor' => 'F'],
+    ['24h' => $debugNow->getTimestamp() - 86400, '7d' => $debugNow->getTimestamp() - 7 * 86400,
+        '30d' => $debugNow->getTimestamp() - 30 * 86400],
+    $debugNow->getTimestamp()
+)['periods']['24h']['heat_loss_w_per_k'], 'unsupported outdoor-temperature units leave the analysis unavailable');
+
 $auxiliaryHeat = nibe_dashboard_performance_metrics([
     'auxiliary_heat_power' => [
         ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:40:00'],
