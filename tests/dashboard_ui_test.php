@@ -70,6 +70,7 @@ class DashboardTestStatement
             ['9', '998', '1000', 'W', $now - 300],
             ['10', '43084', '0', 'kW', $now - 300],
             ['11', '44703', '0', '', $now - 300],
+            ['12', '44363', '-2.3', '°C', $now - 300],
         ];
         if (getenv('NIBE_TEST_STALE_READING') === '1') {
             $points[4][4] = $now - 3600;
@@ -169,6 +170,8 @@ try {
     }
     if (!str_contains($html, '<th>COP</th>')
         || !str_contains($html, '<td>4,00</td>')
+        || !str_contains($html, 'Temperatuur verdamper')
+        || !str_contains($html, 'data-point-id="12"')
         || !str_contains($html, 'Verwarming + Warm water')
         || !str_contains($html, 'Elektrische bijverwarming')
         || !str_contains($html, 'Elektriciteit bijverwarming 24 uur')
@@ -176,6 +179,10 @@ try {
         || str_contains($html, 'COP vereist elektrisch vermogen')
         || str_contains($html, 'Koppelingen voor prestatie-inzichten')) {
         throw new RuntimeException('Recent cycles must show COP and operating type, important readings must have chart toggles, and the obsolete explanation must be absent.');
+    }
+    if (!preg_match('/<div id="charts" data-points="([^"]+)"/', $html, $chartPoints)
+        || !in_array('12', explode(',', $chartPoints[1]), true)) {
+        throw new RuntimeException('The evaporator point must be included in the temperature chart.');
     }
     if (!preg_match('/<section class="suggestions"[^>]*>(.*?)<\/section>/s', $html, $suggestionsSection)
         || !str_contains($suggestionsSection[1], 'Suggesties op basis van meetdata')
@@ -219,6 +226,8 @@ try {
         || !str_contains($homeHtml, 'Systeemoverzicht')
         || !str_contains($homeHtml, 'id="timeline-slider"')
         || !str_contains($homeHtml, 'data-panel="warmtepomp"')
+        || !str_contains($homeHtml, 'class="evaporator-icon"')
+        || !str_contains($homeHtml, 'data-reading="evaporator">-2.3 °C')
         || !str_contains($homeHtml, 'COP nu')
         || !str_contains($homeHtml, 'Weer in Grootegast')
         || !str_contains($homeHtml, '8,5 °C')
