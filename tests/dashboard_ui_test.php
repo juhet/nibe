@@ -220,12 +220,29 @@ try {
         || !str_contains($homeHtml, 'id="timeline-slider"')
         || !str_contains($homeHtml, 'data-panel="warmtepomp"')
         || !str_contains($homeHtml, 'COP nu')
-        || !str_contains($homeHtml, 'Weer in Grootegast')
-        || !str_contains($homeHtml, '8,5 °C')
         || str_contains($homeHtml, 'Meetpunt-ID:')
         || str_contains($homeHtml, 'Alle meetpunten (')
         || !str_contains($homeHtml, 'Niet beschikbaar')) {
         throw new RuntimeException('The default dashboard must show visual system controls and avoid exposing raw measurement lists: ' . $homeError);
+    }
+    if (!str_contains($homeHtml, 'class="node outdoor"')
+        || !str_contains($homeHtml, 'aria-hidden="true">☂</span>')
+        || !str_contains($homeHtml, 'data-weather-condition="Regen"')
+        || !str_contains($homeHtml, 'data-weather-temperature="8,5 °C"')
+        || !str_contains($homeHtml, 'data-weather-apparent="6,2 °C"')
+        || !str_contains($homeHtml, 'data-weather-humidity="85%"')
+        || !str_contains($homeHtml, 'data-weather-wind="12,4 km/h"')
+        || !str_contains($homeHtml, 'data-weather-precipitation="0,1 mm"')
+        || str_contains($homeHtml, 'weather-card')
+        || str_contains($homeHtml, 'Weer in Grootegast')) {
+        throw new RuntimeException('Weather must be integrated into the outdoor visual without a separate home-page card.');
+    }
+    $homeScript = file_get_contents(__DIR__ . '/../dashboard-home.js');
+    if (!is_string($homeScript)
+        || !str_contains($homeScript, "buitenunit: 'Weer in Grootegast'")
+        || !str_contains($homeScript, 'contextContent.replaceChildren(summary, weatherDetails, updated)')
+        || !str_contains($homeScript, 'button.dataset.weatherTimestamp')) {
+        throw new RuntimeException('Selecting the outdoor visual must expose the detailed weather values.');
     }
     if (substr_count($homeHtml, 'class="timeline-segment defrost"') !== 12) {
         throw new RuntimeException('The home timeline must show all 12 observed defrosts in the last 24 hours.');
@@ -272,8 +289,11 @@ try {
         throw new RuntimeException('The visual dashboard must explain when measurements have not been collected: ' . $emptyError);
     }
     [$noWeatherHtml, $noWeatherError, $noWeatherExitCode] = $renderHome(['NIBE_TEST_NO_WEATHER' => '1']);
-    if ($noWeatherExitCode !== 0 || !str_contains($noWeatherHtml, 'Weerdata wordt zichtbaar na de eerste geslaagde verzameling.')) {
-        throw new RuntimeException('The visual dashboard must explain when no weather observation has been collected: ' . $noWeatherError);
+    if ($noWeatherExitCode !== 0
+        || !str_contains($noWeatherHtml, 'data-weather-condition=""')
+        || !str_contains($noWeatherHtml, 'aria-controls="context-panel"')
+        || !str_contains($homeScript, 'Weerdata wordt zichtbaar na de eerste geslaagde verzameling.')) {
+        throw new RuntimeException('The outdoor visual must explain when no weather observation has been collected: ' . $noWeatherError);
     }
     [$databaseErrorHtml, $databaseError, $databaseExitCode] = $renderHome(['NIBE_TEST_DB_FAIL' => '1']);
     if ($databaseExitCode !== 0 || !str_contains($databaseErrorHtml, 'De database is nog niet beschikbaar.')) {
