@@ -182,6 +182,32 @@ expect_same(0.1667, round($detectedCycles[0]['electricity_kwh'], 4), 'cycle elec
 expect_same(0.6667, round($detectedCycles[0]['heat_kwh'], 4), 'cycle heat integrates only observed short-gap power intervals');
 expect_same(4.0, $detectedCycles[0]['cop'], 'cycle COP is the ratio of measured heat and electricity energy');
 expect_same('Verwarming + Warm water', $detectedCycles[0]['operation'], 'cycle operation can indicate combined heating and hot-water production');
+expect_same(true, $detectedCycles[0]['is_complete'], 'a measured stop marks a cycle as complete');
+$activeFrequency = [$frequencyAt(0, 0), $frequencyAt(300, 20), $frequencyAt(600, 25)];
+$activeCycles = nibe_dashboard_compressor_cycles(['frequency' => $activeFrequency], [], $cycleStart + 900);
+expect_same(1, count($activeCycles), 'an observed active run is included');
+expect_same(false, $activeCycles[0]['is_complete'], 'an active cycle is provisional');
+expect_same($cycleStart + 900, $activeCycles[0]['end'], 'an active cycle ends at the supplied current time');
+expect_same(600, $activeCycles[0]['duration_seconds'], 'active duration extends to the current time');
+expect_same(25, $activeCycles[0]['maximum_frequency'], 'active cycle details use observed frequency values');
+expect_same($cycleStart + 1200, nibe_dashboard_compressor_cycles(
+    ['frequency' => $activeFrequency], [], $cycleStart + 1200
+)[0]['end'], 'the provisional end advances with time');
+expect_same(false, nibe_dashboard_compressor_cycles(
+    ['frequency' => $activeFrequency], [], $cycleStart + 600
+)[0]['is_complete'], 'a cycle can start at the current timestamp');
+expect_same([], nibe_dashboard_compressor_cycles(
+    ['frequency' => $activeFrequency], [], $cycleStart + 4201
+), 'stale frequency data does not imply the compressor is still running');
+expect_same([], nibe_dashboard_compressor_cycles(
+    ['frequency' => [$frequencyAt(0, 20), $frequencyAt(300, 25)]], [], $cycleStart + 600
+), 'an active run without an observed start is not fabricated');
+$finishedCycles = nibe_dashboard_compressor_cycles(
+    ['frequency' => [...$activeFrequency, $frequencyAt(900, 0)]], [], $cycleStart + 1200
+);
+expect_same(1, count($finishedCycles), 'a measured stop replaces the provisional cycle');
+expect_same(true, $finishedCycles[0]['is_complete'], 'a measured stop completes the active cycle');
+expect_same($cycleStart + 900, $finishedCycles[0]['end'], 'a completed cycle retains its observed end');
 $coolingCycle = nibe_dashboard_compressor_cycles([
     'frequency' => [
         ['time' => $cycleStart, 'value' => 0],
@@ -476,6 +502,18 @@ expect_same(600, $performance['shortest_run_seconds'], 'shortest completed compr
 expect_same(1800, $performance['compressor_periods']['24h']['total_runtime_seconds'], 'total compressor runtime sums completed cycles');
 expect_same(2, $performance['compressor_periods']['24h']['runs_under_30_minutes'], 'short-run counts use completed 30-minute threshold');
 expect_same(2, $performance['compressor_periods']['24h']['runs_under_60_minutes'], 'short-run counts use completed 60-minute threshold');
+$withActiveCycle = nibe_dashboard_performance_metrics([
+    'frequency' => complete_frequency_history([
+        ['raw_value' => '20', 'source_timestamp' => '2026-01-02 11:10:00'],
+        ['raw_value' => '0', 'source_timestamp' => '2026-01-02 11:20:00'],
+        ['raw_value' => '25', 'source_timestamp' => '2026-01-02 11:55:00'],
+    ], '2026-01-01 11:55:00', '2026-01-02 12:00:00'),
+], [], $now);
+expect_same(2, count($withActiveCycle['cycles']), 'performance output includes completed and active cycles');
+expect_same(false, $withActiveCycle['cycles'][1]['is_complete'], 'performance output marks the current cycle');
+expect_same($now->getTimestamp(), $withActiveCycle['cycles'][1]['end'], 'performance uses the supplied current time');
+expect_same(600, $withActiveCycle['compressor_periods']['24h']['average_run_seconds'], 'active cycles do not affect completed-run averages');
+expect_same(1, $withActiveCycle['compressor_periods']['24h']['runs_under_30_minutes'], 'active cycles do not affect completed short-run counts');
 expect_same(1800, $performance['compressor_periods']['24h']['average_interval_seconds'], 'average start interval uses starts within the selected period');
 expect_same(true, $performance['compressor_periods']['7d']['complete'], 'seven-day compressor summary requires sufficient observed coverage');
 expect_same(true, $performance['compressor_comparisons']['24h']['previous']['complete'],

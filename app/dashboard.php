@@ -281,15 +281,21 @@ function nibe_dashboard_setting_change_input(array $input): array
     ];
 }
 
-function nibe_dashboard_compressor_cycles(array $samples, array $units): array
+function nibe_dashboard_compressor_cycles(array $samples, array $units, ?int $nowTimestamp = null): array
 {
     $frequency = $samples['frequency'] ?? [];
+    $nowTimestamp ??= time();
+    $lastFrequency = $frequency === [] ? null : $frequency[array_key_last($frequency)];
+    if ($lastFrequency !== null && $lastFrequency['value'] > 0
+        && $nowTimestamp >= $lastFrequency['time'] && $nowTimestamp - $lastFrequency['time'] <= 3600) {
+        $frequency[] = ['time' => $nowTimestamp, 'value' => 0, 'provisional' => true];
+    }
     $cycles = [];
     $runStartIndex = null;
     $previous = null;
 
     foreach ($frequency as $index => $sample) {
-        if ($previous !== null && ($sample['time'] <= $previous['time']
+        if ($previous !== null && (($sample['time'] <= $previous['time'] && !($sample['provisional'] ?? false))
             || $sample['time'] - $previous['time'] > 3600)) {
             $runStartIndex = null;
             $previous = null;
@@ -394,6 +400,7 @@ function nibe_dashboard_compressor_cycles(array $samples, array $units): array
             $cycles[] = [
                 'start' => $start,
                 'end' => $end,
+                'is_complete' => !($sample['provisional'] ?? false),
                 'duration_seconds' => $end - $start,
                 'degree_minutes_start' => null,
                 'degree_minutes_end' => null,
@@ -902,7 +909,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         }
     }
 
-    $cycles = nibe_dashboard_compressor_cycles($samples, $units);
+    $cycles = nibe_dashboard_compressor_cycles($samples, $units, $nowTimestamp);
     $startTimes = [];
     $frequencySeconds = [
         '0' => 0,
@@ -942,7 +949,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
     }
     $runLengths = array_values(array_map(
         static fn (array $cycle): int => $cycle['duration_seconds'],
-        array_filter($cycles, static fn (array $cycle): bool => $cycle['start'] >= $windows['24h'])
+        array_filter($cycles, static fn (array $cycle): bool => $cycle['is_complete'] && $cycle['start'] >= $windows['24h'])
     ));
 
     $frequencyWindowValid = [];
@@ -1006,7 +1013,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         ));
         $periodCycles = array_values(array_filter(
             $cycles,
-            static fn (array $cycle): bool => $cycle['start'] >= $start && $cycle['start'] <= $nowTimestamp
+            static fn (array $cycle): bool => $cycle['is_complete'] && $cycle['start'] >= $start && $cycle['start'] <= $nowTimestamp
         ));
         $durations = array_column($periodCycles, 'duration_seconds');
         $runtimeSeconds = 0;
@@ -1046,7 +1053,7 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
         ));
         $previousCycles = array_values(array_filter(
             $cycles,
-            static fn (array $cycle): bool => $cycle['start'] >= $previousStart && $cycle['start'] < $previousEnd
+            static fn (array $cycle): bool => $cycle['is_complete'] && $cycle['start'] >= $previousStart && $cycle['start'] < $previousEnd
                 && $cycle['end'] < $previousEnd
         ));
         $baseline = null;

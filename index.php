@@ -173,8 +173,10 @@ $latestCycles = array_slice(array_reverse($performance['cycles'] ?? []), 0, 3);
 $eventItems = [];
 foreach ($latestCycles as $cycle) {
     $eventItems[] = [
-        'time' => (int) $cycle['end'],
-        'label' => ($cycle['operation'] ?? null) ?: 'Compressorcyclus afgerond',
+        'time' => (int) ($cycle['is_complete'] ? $cycle['end'] : $cycle['start']),
+        'label' => $cycle['is_complete']
+            ? (($cycle['operation'] ?? null) ?: 'Compressorcyclus afgerond')
+            : 'Compressorcyclus actief',
     ];
 }
 if ($lastDefrostTime !== null) {

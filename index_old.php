@@ -571,7 +571,7 @@ if ($nibeDashboardDataOnly ?? false) {
                 <p class="muted">Datadekking: huidige <?= nibe_escape(number_format($cycleSummary['coverage_percentage'], 1, ',', '') . '%') ?>; vorige <?= nibe_escape(number_format($cycleComparison['previous']['coverage_percentage'], 1, ',', '') . '%') ?>. Onvolledige perioden worden niet met getallen vergeleken.</p>
             <?php endif; ?>
             <h4>Recente individuele cycli</h4>
-            <p class="muted">De type-indicatie gebruikt het teken van ΔT voor verwarming of koeling en een stijging van minimaal 1 °C in tapwatertemperatuur voor warm water.</p>
+            <p class="muted">Een actieve cyclus heeft als voorlopig einde de huidige tijd. De type-indicatie gebruikt het teken van ΔT voor verwarming of koeling en een stijging van minimaal 1 °C in tapwatertemperatuur voor warm water.</p>
             <?php if ($periodCycles === []): ?>
                 <p class="muted">Geen volledig waargenomen compressorcycli in deze periode.</p>
             <?php else: ?>
@@ -582,7 +582,7 @@ if ($nibeDashboardDataOnly ?? false) {
                             <?php foreach ($periodCycles as $cycle): ?>
                                 <tr>
                                     <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['start'])) ?>">Tijd laden…</time></td>
-                                    <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['end'])) ?>">Tijd laden…</time></td>
+                                    <td><time class="local-time" datetime="<?= nibe_escape(gmdate('Y-m-d H:i:s', $cycle['end'])) ?>">Tijd laden…</time><?= $cycle['is_complete'] ? '' : ' (actief)' ?></td>
                                     <td><?= nibe_escape(number_format($cycle['duration_seconds'] / 60, 1, ',', '') . ' min') ?></td>
                                     <td><?= $cycle['cop'] === null ? 'Niet beschikbaar' : nibe_escape(number_format($cycle['cop'], 2, ',', '')) ?></td>
                                     <td><?= $cycle['operation'] === null ? 'Onbekend' : nibe_escape($cycle['operation']) ?></td>
