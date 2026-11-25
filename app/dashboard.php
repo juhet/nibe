@@ -577,6 +577,163 @@ function nibe_dashboard_cop_by_outdoor_temperature(array $samples, array $units)
     return $buckets;
 }
 
+function nibe_dashboard_heating_analysis(
+    array $samples,
+    array $units,
+    array $windows,
+    int $nowTimestamp
+): array {
+    $powerUnit = static function (string $unit): ?float {
+        return match (strtolower(trim($unit))) {
+            'w', 'watts' => 0.001,
+            'kw', 'kilowatts' => 1.0,
+            default => null,
+        };
+    };
+    $heatFactor = $powerUnit((string) ($units['heat_power'] ?? ''));
+    $electricFactor = $powerUnit((string) ($units['electric_power'] ?? ''));
+    $outdoorUnit = strtolower(trim((string) ($units['outdoor'] ?? '')));
+    $validOutdoorUnit = in_array($outdoorUnit, ['c', 'celsius', '°c'], true);
+    $heat = $samples['heat_power'] ?? [];
+    $electricity = $samples['electric_power'] ?? [];
+    $outdoor = $samples['outdoor'] ?? [];
+    $nearest = static function (array $series, int $time): ?array {
+        $low = 0;
+        $high = count($series) - 1;
+        while ($low <= $high) {
+            $middle = intdiv($low + $high, 2);
+            if ($series[$middle]['time'] < $time) {
+                $low = $middle + 1;
+            } else {
+                $high = $middle - 1;
+            }
+        }
+        $before = $high >= 0 ? $series[$high] : null;
+        $after = isset($series[$low]) ? $series[$low] : null;
+        if ($before === null) {
+            $candidate = $after;
+        } elseif ($after === null || $time - $before['time'] <= $after['time'] - $time) {
+            $candidate = $before;
+        } else {
+            $candidate = $after;
+        }
+        return $candidate !== null && abs($candidate['time'] - $time) <= 300 ? $candidate : null;
+    };
+    $periods = [];
+    foreach (['24h', '7d', '30d'] as $period) {
+        $periods[$period] = [
+            'electricity_kwh' => null,
+            'heat_kwh' => null,
+            'degree_days' => null,
+            'electricity_per_degree_day' => null,
+            'heat_per_degree_day' => null,
+            'average_cop' => null,
+            'heat_loss_w_per_k' => null,
+            'heat_demand_at_zero_kw' => null,
+            'coverage_percentage' => 0.0,
+            'matched_intervals' => 0,
+            'reliability' => 'Onvoldoende gegevens',
+            'benchmark' => null,
+        ];
+    }
+    $daily = [];
+    if ($heatFactor !== null && $electricFactor !== null && $validOutdoorUnit) {
+        for ($index = 1, $count = count($heat); $index < $count; $index++) {
+            $previous = $heat[$index - 1];
+            $current = $heat[$index];
+            $intervalSeconds = $current['time'] - $previous['time'];
+            if ($intervalSeconds <= 0 || $intervalSeconds > 900) {
+                continue;
+            }
+            $electricPrevious = $nearest($electricity, $previous['time']);
+            $electricCurrent = $nearest($electricity, $current['time']);
+            $outdoorPrevious = $nearest($outdoor, $previous['time']);
+            $outdoorCurrent = $nearest($outdoor, $current['time']);
+            if ($electricPrevious === null || $electricCurrent === null
+                || $outdoorPrevious === null || $outdoorCurrent === null
+                || $previous['value'] < 0 || $current['value'] < 0
+                || $electricPrevious['value'] <= 0 || $electricCurrent['value'] <= 0) {
+                continue;
+            }
+            $heatKw = (($previous['value'] + $current['value']) / 2) * $heatFactor;
+            $electricKw = (($electricPrevious['value'] + $electricCurrent['value']) / 2) * $electricFactor;
+            $outdoorTemperature = ($outdoorPrevious['value'] + $outdoorCurrent['value']) / 2;
+            $degreeDifference = max(0, 20 - $outdoorTemperature);
+            foreach ($periods as $period => &$metrics) {
+                $start = $windows[$period];
+                $segmentStart = max($previous['time'], $start);
+                $segmentEnd = min($current['time'], $nowTimestamp);
+                if ($segmentEnd <= $segmentStart) {
+                    continue;
+                }
+                $seconds = $segmentEnd - $segmentStart;
+                $metrics['matched_intervals']++;
+                $metrics['coverage_percentage'] += 100 * $seconds / max(1, $nowTimestamp - $start);
+                if ($degreeDifference <= 0) {
+                    continue;
+                }
+                $hours = $seconds / 3600;
+                $heatKwh = $heatKw * $hours;
+                $electricityKwh = $electricKw * $hours;
+                $degreeDays = $degreeDifference * $hours / 24;
+                $metrics['electricity_kwh'] = ($metrics['electricity_kwh'] ?? 0) + $electricityKwh;
+                $metrics['heat_kwh'] = ($metrics['heat_kwh'] ?? 0) + $heatKwh;
+                $metrics['degree_days'] = ($metrics['degree_days'] ?? 0) + $degreeDays;
+            }
+            unset($metrics);
+            if ($degreeDifference > 0) {
+                $dayStart = intdiv($previous['time'], 86400) * 86400;
+                while ($dayStart < $current['time']) {
+                    $segmentStart = max($previous['time'], $dayStart);
+                    $segmentEnd = min($current['time'], $dayStart + 86400);
+                    $date = gmdate('Y-m-d', $dayStart);
+                    $daily[$date] ??= ['date' => $date, 'electricity_kwh' => 0.0, 'heat_kwh' => 0.0, 'degree_days' => 0.0];
+                    $dayHours = ($segmentEnd - $segmentStart) / 3600;
+                    $daily[$date]['electricity_kwh'] += $electricKw * $dayHours;
+                    $daily[$date]['heat_kwh'] += $heatKw * $dayHours;
+                    $daily[$date]['degree_days'] += $degreeDifference * $dayHours / 24;
+                    $dayStart += 86400;
+                }
+            }
+        }
+    }
+    foreach ($periods as $period => &$metrics) {
+        $metrics['coverage_percentage'] = min(100, $metrics['coverage_percentage']);
+        if ($metrics['matched_intervals'] < 3 || ($metrics['degree_days'] ?? 0) <= 0
+            || ($metrics['electricity_kwh'] ?? 0) <= 0) {
+            continue;
+        }
+        $metrics['electricity_per_degree_day'] = $metrics['electricity_kwh'] / $metrics['degree_days'];
+        $metrics['heat_per_degree_day'] = $metrics['heat_kwh'] / $metrics['degree_days'];
+        $metrics['average_cop'] = $metrics['heat_kwh'] / $metrics['electricity_kwh'];
+        $metrics['heat_loss_w_per_k'] = $metrics['heat_kwh'] * 1000 / ($metrics['degree_days'] * 24);
+        $metrics['heat_demand_at_zero_kw'] = $metrics['heat_loss_w_per_k'] * 20 / 1000;
+        $metrics['reliability'] = $metrics['coverage_percentage'] >= 80
+            ? 'Goed'
+            : ($metrics['coverage_percentage'] >= 50 ? 'Redelijk' : 'Beperkt');
+        $electricityPerDegreeDay = $metrics['electricity_per_degree_day'];
+        $metrics['benchmark'] = match (true) {
+            $electricityPerDegreeDay < 4 => 'Uitstekende prestatie',
+            $electricityPerDegreeDay < 6 => 'Goede prestatie',
+            $electricityPerDegreeDay < 8 => 'Gemiddeld',
+            $electricityPerDegreeDay < 10 => 'Relatief hoge warmtevraag',
+            default => 'Zeer hoge warmtevraag',
+        };
+    }
+    unset($metrics);
+    ksort($daily);
+    foreach ($daily as &$day) {
+        if ($day['degree_days'] > 0) {
+            $day['electricity_per_degree_day'] = $day['electricity_kwh'] / $day['degree_days'];
+        } else {
+            $day['electricity_per_degree_day'] = null;
+        }
+    }
+    unset($day);
+
+    return ['periods' => $periods, 'daily' => $daily];
+}
+
 function nibe_dashboard_performance_metrics(array $observations, array $units, DateTimeImmutable $now): array
 {
     $now = $now->setTimezone(new DateTimeZone('UTC'));
@@ -1376,9 +1533,11 @@ function nibe_dashboard_performance_metrics(array $observations, array $units, D
             : null;
     }
     $copByOutdoor = nibe_dashboard_cop_by_outdoor_temperature($samples, $units);
+    $heatingAnalysis = nibe_dashboard_heating_analysis($samples, $units, $windows, $nowTimestamp);
 
     return [
         'periods' => $emptyPeriods,
+        'heating_analysis' => $heatingAnalysis,
         'data_coverage' => $periodCoverage,
         'cop_now' => $latestCop,
         'cop_now_timestamp' => $latestCop !== null ? gmdate('Y-m-d H:i:s', $latestCopTime) : null,
